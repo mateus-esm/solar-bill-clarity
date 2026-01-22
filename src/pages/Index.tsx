@@ -10,47 +10,128 @@ import { SolarBreakdown } from "@/components/SolarBreakdown";
 import { CostChart } from "@/components/CostChart";
 import { EducationalBlock } from "@/components/EducationalBlock";
 import { CTASection } from "@/components/CTASection";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
-// Mock analysis result - this would come from backend
-const mockAnalysisResult = {
-  consumoReal: 520,
-  consumoFaturado: 85,
-  valorTotal: 127.45,
-  energiaGerada: 450,
-  energiaInjetada: 380,
-  creditosUsados: 365,
-  creditosAcumulados: 245,
-  economia: 412.50,
-  detalhamento: [
-    { name: "Energia", value: 40.78, color: "hsl(24, 95%, 53%)" },
-    { name: "Impostos", value: 52.26, color: "hsl(45, 100%, 51%)" },
-    { name: "CIP", value: 11.47, color: "hsl(210, 40%, 50%)" },
-    { name: "Outros", value: 22.94, color: "hsl(0, 0%, 60%)" },
-  ],
-};
+interface AnalysisResult {
+  consumoReal: number;
+  consumoFaturado: number;
+  valorTotal: number;
+  energiaGerada: number;
+  energiaInjetada: number;
+  creditosUsados: number;
+  creditosAcumulados: number;
+  economia: number;
+  detalhamento: Array<{ name: string; value: number; color: string }>;
+  alerts: string[];
+  distribuidora: string;
+  bandeira: string;
+}
 
 export default function Index() {
   const [file, setFile] = useState<File | null>(null);
   const [solarGeneration, setSolarGeneration] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const { toast } = useToast();
+
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Remove the data:mime;base64, prefix
+        const base64 = result.split(",")[1];
+        resolve(base64);
+      };
+      reader.onerror = reject;
+    });
+  };
 
   const handleAnalyze = async () => {
     if (!file || !solarGeneration) return;
 
     setIsAnalyzing(true);
     
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    
-    setIsAnalyzing(false);
-    setShowResults(true);
+    try {
+      const fileBase64 = await fileToBase64(file);
+      const monitoredGeneration = parseFloat(solarGeneration);
+
+      const { data, error } = await supabase.functions.invoke("analyze-bill", {
+        body: {
+          fileBase64,
+          fileType: file.type,
+          monitoredGeneration,
+          quickAnalysis: true,
+        },
+      });
+
+      if (error) throw error;
+
+      if (!data.success) {
+        throw new Error(data.error || "Erro na análise");
+      }
+
+      const result = data.data;
+      
+      // Build the cost breakdown
+      const detalhamento = [];
+      if (result.energy_cost) {
+        detalhamento.push({ name: "Energia", value: result.energy_cost, color: "hsl(24, 95%, 53%)" });
+      }
+      if (result.icms_cost) {
+        detalhamento.push({ name: "ICMS", value: result.icms_cost, color: "hsl(45, 100%, 51%)" });
+      }
+      if (result.pis_cofins_cost) {
+        detalhamento.push({ name: "PIS/COFINS", value: result.pis_cofins_cost, color: "hsl(210, 40%, 50%)" });
+      }
+      if (result.public_lighting_cost) {
+        detalhamento.push({ name: "CIP", value: result.public_lighting_cost, color: "hsl(280, 60%, 50%)" });
+      }
+      if (result.availability_cost) {
+        detalhamento.push({ name: "Disponibilidade", value: result.availability_cost, color: "hsl(160, 60%, 45%)" });
+      }
+
+      setAnalysisResult({
+        consumoReal: result.real_consumption_kwh || 0,
+        consumoFaturado: result.billed_consumption_kwh || 0,
+        valorTotal: result.total_amount || 0,
+        energiaGerada: monitoredGeneration,
+        energiaInjetada: result.injected_energy_kwh || 0,
+        creditosUsados: result.compensated_energy_kwh || 0,
+        creditosAcumulados: result.current_credits_kwh || 0,
+        economia: result.estimated_savings || 0,
+        detalhamento,
+        alerts: result.alerts || [],
+        distribuidora: result.distributor || "Não identificada",
+        bandeira: result.tariff_flag || "Não identificada",
+      });
+
+      setShowResults(true);
+      
+      toast({
+        title: "Análise concluída!",
+        description: "Sua conta foi analisada com sucesso.",
+      });
+    } catch (error) {
+      console.error("Analysis error:", error);
+      toast({
+        title: "Erro na análise",
+        description: error instanceof Error ? error.message : "Não foi possível analisar a conta",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleReset = () => {
     setFile(null);
     setSolarGeneration("");
     setShowResults(false);
+    setAnalysisResult(null);
   };
 
   const canAnalyze = file && solarGeneration && !isAnalyzing;
@@ -155,7 +236,7 @@ export default function Index() {
                 </span>
               </motion.div>
             </motion.div>
-          ) : (
+          ) : analysisResult && (
             <motion.div
               key="results"
               initial={{ opacity: 0, y: 20 }}
@@ -169,7 +250,7 @@ export default function Index() {
                     Análise da sua Conta
                   </h2>
                   <p className="text-sm text-muted-foreground">
-                    Referência: Janeiro 2025
+                    Distribuidora: {analysisResult.distribuidora} | Bandeira: {analysisResult.bandeira}
                   </p>
                 </div>
                 <Button variant="ghost" size="sm" onClick={handleReset}>
@@ -177,33 +258,49 @@ export default function Index() {
                 </Button>
               </div>
 
+              {/* Alerts */}
+              {analysisResult.alerts.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4"
+                >
+                  <h3 className="font-semibold text-yellow-600 mb-2">⚠️ Alertas</h3>
+                  <ul className="space-y-1 text-sm text-yellow-700">
+                    {analysisResult.alerts.map((alert, i) => (
+                      <li key={i}>• {alert}</li>
+                    ))}
+                  </ul>
+                </motion.div>
+              )}
+
               {/* Summary Cards */}
               <div className="grid gap-4 sm:grid-cols-2">
                 <ResultCard
                   title="Consumo Real"
-                  value={`${mockAnalysisResult.consumoReal} kWh`}
+                  value={`${analysisResult.consumoReal.toFixed(0)} kWh`}
                   subtitle="Quanto você realmente usou"
                   icon={Home}
                   delay={0}
                   variant="highlight"
                 />
                 <ResultCard
-                  title="Faturado pela Enel"
-                  value={`${mockAnalysisResult.consumoFaturado} kWh`}
+                  title="Faturado pela Distribuidora"
+                  value={`${analysisResult.consumoFaturado.toFixed(0)} kWh`}
                   subtitle="Quanto foi cobrado"
                   icon={Receipt}
                   delay={0.1}
                 />
                 <ResultCard
                   title="Geração Solar"
-                  value={`${mockAnalysisResult.energiaGerada} kWh`}
+                  value={`${analysisResult.energiaGerada.toFixed(0)} kWh`}
                   subtitle="Sua energia limpa"
                   icon={Sun}
                   delay={0.2}
                 />
                 <ResultCard
                   title="Valor Total"
-                  value={`R$ ${mockAnalysisResult.valorTotal.toFixed(2)}`}
+                  value={`R$ ${analysisResult.valorTotal.toFixed(2)}`}
                   subtitle="Total pago neste mês"
                   icon={Zap}
                   delay={0.3}
@@ -212,17 +309,19 @@ export default function Index() {
 
               {/* Solar Breakdown */}
               <SolarBreakdown
-                gerada={mockAnalysisResult.energiaGerada}
-                injetada={mockAnalysisResult.energiaInjetada}
-                creditosUsados={mockAnalysisResult.creditosUsados}
-                creditosAcumulados={mockAnalysisResult.creditosAcumulados}
+                gerada={analysisResult.energiaGerada}
+                injetada={analysisResult.energiaInjetada}
+                creditosUsados={analysisResult.creditosUsados}
+                creditosAcumulados={analysisResult.creditosAcumulados}
               />
 
               {/* Cost Distribution */}
-              <CostChart data={mockAnalysisResult.detalhamento} />
+              {analysisResult.detalhamento.length > 0 && (
+                <CostChart data={analysisResult.detalhamento} />
+              )}
 
               {/* Educational Block */}
-              <EducationalBlock economia={mockAnalysisResult.economia} />
+              <EducationalBlock economia={analysisResult.economia} />
 
               {/* CTA Section */}
               <CTASection />
