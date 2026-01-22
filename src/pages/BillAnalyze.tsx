@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { db, storage, functions } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
 
 const monthNames = [
@@ -61,11 +61,10 @@ export default function BillAnalyze() {
 
   const fetchSolarSystem = async () => {
     try {
-      const { data, error } = await (supabase
-        .from("solar_systems" as any)
+      const { data, error } = await db("solar_systems")
         .select("id, expected_monthly_generation")
         .eq("property_id", id)
-        .single() as any);
+        .single();
 
       if (!error && data) {
         setSolarSystemId(data.id);
@@ -149,20 +148,19 @@ export default function BillAnalyze() {
       const fileExt = file.name.split(".").pop();
       const fileName = `${user.id}/${id}/${referenceYear}-${referenceMonth}.${fileExt}`;
       
-      const { error: uploadError } = await supabase.storage
+      const { error: uploadError } = await storage
         .from("bills")
         .upload(fileName, file, { upsert: true });
 
       if (uploadError) throw uploadError;
 
       // Get public URL
-      const { data: urlData } = supabase.storage
+      const { data: urlData } = storage
         .from("bills")
         .getPublicUrl(fileName);
 
       // Create analysis record
-      const { data: analysis, error: analysisError } = await (supabase
-        .from("bill_analyses" as any)
+      const { data: analysis, error: analysisError } = await db("bill_analyses")
         .insert({
           property_id: id,
           solar_system_id: solarSystemId,
@@ -174,13 +172,13 @@ export default function BillAnalyze() {
           status: "processing",
         })
         .select()
-        .single() as any);
+        .single();
 
       if (analysisError) throw analysisError;
       if (!analysis) throw new Error("Failed to create analysis");
 
       // Call edge function for OCR analysis
-      const { data: ocrResult, error: ocrError } = await supabase.functions.invoke(
+      const { data: ocrResult, error: ocrError } = await functions.invoke(
         "analyze-bill",
         {
           body: {
