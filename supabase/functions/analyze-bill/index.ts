@@ -38,9 +38,16 @@ interface ExtractedBillData {
   tariff_flag?: string;
 }
 
-async function downloadAndConvertToBase64(url: string): Promise<{ base64: string; mimeType: string }> {
+async function downloadAndConvertToBase64(url: string, supabaseServiceKey?: string): Promise<{ base64: string; mimeType: string }> {
   console.log("Downloading file from:", url);
-  const response = await fetch(url);
+  
+  // Add authorization header for Supabase storage URLs
+  const headers: Record<string, string> = {};
+  if (url.includes("supabase.co") && supabaseServiceKey) {
+    headers["Authorization"] = `Bearer ${supabaseServiceKey}`;
+  }
+  
+  const response = await fetch(url, { headers });
   if (!response.ok) {
     throw new Error(`Failed to download file: ${response.status}`);
   }
@@ -102,6 +109,8 @@ serve(async (req) => {
       throw new Error("OPENAI_API_KEY not configured");
     }
 
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
     // Get the image data
     let imageBase64: string;
     let imageMimeType: string;
@@ -111,8 +120,8 @@ serve(async (req) => {
       imageBase64 = fileBase64;
       imageMimeType = getMimeTypeFromBase64OrUrl(fileType);
     } else if (fileUrl) {
-      // Download from URL and convert to base64
-      const downloaded = await downloadAndConvertToBase64(fileUrl);
+      // Download from URL and convert to base64 (use service key for private buckets)
+      const downloaded = await downloadAndConvertToBase64(fileUrl, supabaseServiceKey);
       imageBase64 = downloaded.base64;
       imageMimeType = downloaded.mimeType;
     } else {
@@ -268,7 +277,6 @@ IMPORTANTE:
 
     // Full analysis with database update
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Generate AI analysis text
