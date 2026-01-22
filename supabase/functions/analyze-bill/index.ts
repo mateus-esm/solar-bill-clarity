@@ -41,15 +41,24 @@ interface ExtractedBillData {
 async function downloadAndConvertToBase64(url: string, supabaseServiceKey?: string): Promise<{ base64: string; mimeType: string }> {
   console.log("Downloading file from:", url);
   
-  // Add authorization header for Supabase storage URLs
+  // For private Supabase storage buckets, we need to convert public URL to authenticated URL
+  let fetchUrl = url;
   const headers: Record<string, string> = {};
-  if (url.includes("supabase.co") && supabaseServiceKey) {
+  
+  if (url.includes("supabase.co/storage") && supabaseServiceKey) {
+    // Convert public URL format to authenticated format
+    // From: .../storage/v1/object/public/bucket/path
+    // To: .../storage/v1/object/bucket/path (with auth header)
+    fetchUrl = url.replace("/object/public/", "/object/");
     headers["Authorization"] = `Bearer ${supabaseServiceKey}`;
+    console.log("Using authenticated URL:", fetchUrl);
   }
   
-  const response = await fetch(url, { headers });
+  const response = await fetch(fetchUrl, { headers });
   if (!response.ok) {
-    throw new Error(`Failed to download file: ${response.status}`);
+    const errorText = await response.text();
+    console.error("Download failed:", response.status, errorText);
+    throw new Error(`Failed to download file: ${response.status} - ${errorText}`);
   }
   
   const contentType = response.headers.get("content-type") || "application/octet-stream";
