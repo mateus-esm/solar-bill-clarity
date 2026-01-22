@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,10 +8,13 @@ const corsHeaders = {
 };
 
 interface BillAnalysisRequest {
-  analysisId: string;
-  fileUrl: string;
-  expectedGeneration: number;
+  analysisId?: string;
+  fileUrl?: string;
+  fileBase64?: string;
+  fileType?: string;
+  expectedGeneration?: number;
   monitoredGeneration: number;
+  quickAnalysis?: boolean;
 }
 
 interface ExtractedBillData {
@@ -34,24 +38,90 @@ interface ExtractedBillData {
   tariff_flag?: string;
 }
 
+async function downloadAndConvertToBase64(url: string): Promise<{ base64: string; mimeType: string }> {
+  console.log("Downloading file from:", url);
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download file: ${response.status}`);
+  }
+  
+  const contentType = response.headers.get("content-type") || "application/octet-stream";
+  const arrayBuffer = await response.arrayBuffer();
+  const base64 = base64Encode(arrayBuffer);
+  
+  console.log("File downloaded, size:", arrayBuffer.byteLength, "bytes, type:", contentType);
+  
+  return { base64, mimeType: contentType };
+}
+
+function getMimeTypeFromBase64OrUrl(fileType?: string, url?: string): string {
+  if (fileType) {
+    if (fileType.includes("pdf")) return "application/pdf";
+    if (fileType.includes("png")) return "image/png";
+    if (fileType.includes("jpg") || fileType.includes("jpeg")) return "image/jpeg";
+    if (fileType.includes("webp")) return "image/webp";
+    return fileType;
+  }
+  if (url) {
+    if (url.endsWith(".pdf")) return "application/pdf";
+    if (url.endsWith(".png")) return "image/png";
+    if (url.endsWith(".jpg") || url.endsWith(".jpeg")) return "image/jpeg";
+    if (url.endsWith(".webp")) return "image/webp";
+  }
+  return "image/jpeg";
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { analysisId, fileUrl, expectedGeneration, monitoredGeneration }: BillAnalysisRequest = await req.json();
+    const requestData: BillAnalysisRequest = await req.json();
+    const { 
+      analysisId, 
+      fileUrl, 
+      fileBase64, 
+      fileType,
+      expectedGeneration = 0, 
+      monitoredGeneration,
+      quickAnalysis = false 
+    } = requestData;
     
-    console.log("Starting bill analysis:", { analysisId, fileUrl, expectedGeneration, monitoredGeneration });
+    console.log("Starting bill analysis:", { 
+      analysisId, 
+      fileUrl: fileUrl?.substring(0, 50), 
+      hasBase64: !!fileBase64,
+      expectedGeneration, 
+      monitoredGeneration,
+      quickAnalysis 
+    });
 
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
     if (!OPENAI_API_KEY) {
       throw new Error("OPENAI_API_KEY not configured");
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    // Get the image data
+    let imageBase64: string;
+    let imageMimeType: string;
+
+    if (fileBase64) {
+      // Direct base64 from client (for quick analysis)
+      imageBase64 = fileBase64;
+      imageMimeType = getMimeTypeFromBase64OrUrl(fileType);
+    } else if (fileUrl) {
+      // Download from URL and convert to base64
+      const downloaded = await downloadAndConvertToBase64(fileUrl);
+      imageBase64 = downloaded.base64;
+      imageMimeType = downloaded.mimeType;
+    } else {
+      throw new Error("Either fileUrl or fileBase64 must be provided");
+    }
+
+    // For PDFs, we need to inform OpenAI it's a PDF (it will try to extract images/text)
+    // OpenAI Vision can handle PDFs if sent as base64
+    const imageDataUrl = `data:${imageMimeType};base64,${imageBase64}`;
 
     // Call OpenAI Vision API to analyze the bill
     const systemPrompt = `Você é um especialista em análise de contas de energia elétrica brasileiras. 
@@ -85,6 +155,8 @@ IMPORTANTE:
 - Para valores monetários, extraia apenas o número sem R$
 - Para kWh, extraia apenas o número sem a unidade`;
 
+    console.log("Calling OpenAI Vision API...");
+
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -104,7 +176,7 @@ IMPORTANTE:
               },
               {
                 type: "image_url",
-                image_url: { url: fileUrl, detail: "high" },
+                image_url: { url: imageDataUrl, detail: "high" },
               },
             ],
           },
@@ -117,7 +189,7 @@ IMPORTANTE:
     if (!openaiResponse.ok) {
       const errorText = await openaiResponse.text();
       console.error("OpenAI API error:", errorText);
-      throw new Error(`OpenAI API error: ${openaiResponse.status}`);
+      throw new Error(`OpenAI API error: ${openaiResponse.status} - ${errorText}`);
     }
 
     const openaiData = await openaiResponse.json();
@@ -145,7 +217,7 @@ IMPORTANTE:
     // Generate alerts
     const alerts: string[] = [];
     
-    if (generationEfficiency < 80) {
+    if (expectedGeneration > 0 && generationEfficiency < 80) {
       alerts.push(`Geração abaixo do esperado: ${generationEfficiency.toFixed(1)}% da expectativa`);
     }
     
@@ -168,7 +240,36 @@ IMPORTANTE:
     }
 
     // Calculate estimated savings (simplified)
-    const estimatedSavings = (extractedData.compensated_energy_kwh || 0) * 0.75; // avg tariff estimate
+    const estimatedSavings = (extractedData.compensated_energy_kwh || 0) * 0.75;
+
+    // For quick analysis, skip database and AI analysis generation
+    if (quickAnalysis) {
+      console.log("Quick analysis completed");
+      
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          data: {
+            ...extractedData,
+            real_consumption_kwh: realConsumption,
+            generation_efficiency: generationEfficiency,
+            estimated_savings: estimatedSavings,
+            alerts,
+            monitored_generation_kwh: monitoredGeneration,
+          },
+          message: "Análise rápida concluída" 
+        }),
+        { 
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200 
+        }
+      );
+    }
+
+    // Full analysis with database update
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Generate AI analysis text
     const analysisPrompt = `Com base nos dados extraídos desta conta de energia solar, gere uma análise resumida (máximo 3 parágrafos) em português:
