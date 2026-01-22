@@ -15,7 +15,7 @@ import {
 import soloLogo from "@/assets/solo-logo.png";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
 
 interface Property {
@@ -56,8 +56,7 @@ export default function Dashboard() {
 
   const fetchProperties = async () => {
     try {
-      const { data, error } = await (supabase
-        .from("properties" as any)
+      const { data, error } = await db("properties")
         .select(`
           *,
           solar_systems (
@@ -67,7 +66,7 @@ export default function Dashboard() {
             number_of_modules
           )
         `)
-        .order("created_at", { ascending: false }) as any);
+        .order("created_at", { ascending: false });
 
       if (error) throw error;
       setProperties(data || []);

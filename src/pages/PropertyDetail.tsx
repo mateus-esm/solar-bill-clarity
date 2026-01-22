@@ -19,7 +19,7 @@ import {
 import soloLogo from "@/assets/solo-logo.png";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
 
 interface Property {
@@ -90,33 +90,30 @@ export default function PropertyDetail() {
   const fetchPropertyData = async () => {
     try {
       // Fetch property
-      const { data: propertyData, error: propertyError } = await (supabase
-        .from("properties" as any)
+      const { data: propertyData, error: propertyError } = await db("properties")
         .select("*")
         .eq("id", id)
-        .single() as any);
+        .single();
 
       if (propertyError) throw propertyError;
       setProperty(propertyData);
 
       // Fetch solar system
-      const { data: systemData, error: systemError } = await (supabase
-        .from("solar_systems" as any)
+      const { data: systemData, error: systemError } = await db("solar_systems")
         .select("*")
         .eq("property_id", id)
-        .single() as any);
+        .single();
 
       if (!systemError && systemData) {
         setSolarSystem(systemData);
       }
 
       // Fetch analyses
-      const { data: analysesData, error: analysesError } = await (supabase
-        .from("bill_analyses" as any)
+      const { data: analysesData, error: analysesError } = await db("bill_analyses")
         .select("*")
         .eq("property_id", id)
         .order("reference_year", { ascending: false })
-        .order("reference_month", { ascending: false }) as any);
+        .order("reference_month", { ascending: false });
 
       if (!analysesError) {
         setAnalyses(analysesData || []);

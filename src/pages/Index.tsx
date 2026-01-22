@@ -59,8 +59,11 @@ export default function Index() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container flex h-16 items-center justify-center">
+        <div className="container flex h-16 items-center justify-between">
           <img src={soloLogo} alt="Solo Energia" className="h-8 w-auto" />
+          <Button variant="gradient" size="sm" onClick={() => window.location.href = '/auth'}>
+            Entrar
+          </Button>
         </div>
       </header>
 

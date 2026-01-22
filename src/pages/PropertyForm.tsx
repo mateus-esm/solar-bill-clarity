@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
 
 const propertySchema = z.object({
@@ -141,8 +141,7 @@ export default function PropertyForm() {
 
     try {
       // Create property
-      const { data: property, error: propertyError } = await (supabase
-        .from("properties" as any)
+      const { data: property, error: propertyError } = await db("properties")
         .insert({
           owner_id: user.id,
           name,
@@ -153,14 +152,13 @@ export default function PropertyForm() {
           average_consumption: parseFloat(averageConsumption) || 0,
         })
         .select()
-        .single() as any);
+        .single();
 
       if (propertyError) throw propertyError;
       if (!property) throw new Error("Failed to create property");
 
       // Create solar system
-      const { error: systemError } = await (supabase
-        .from("solar_systems" as any)
+      const { error: systemError } = await db("solar_systems")
         .insert({
           property_id: property.id,
           number_of_modules: parseInt(numberOfModules),
@@ -171,7 +169,7 @@ export default function PropertyForm() {
           installation_year: parseInt(installationYear),
           system_cost: parseFloat(systemCost) || null,
           last_maintenance_date: lastMaintenanceDate || null,
-        }) as any);
+        });
 
       if (systemError) throw systemError;
 

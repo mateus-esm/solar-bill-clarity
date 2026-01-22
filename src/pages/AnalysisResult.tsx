@@ -22,7 +22,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recha
 import soloLogo from "@/assets/solo-logo.png";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
 
 interface BillAnalysis {
@@ -86,11 +86,10 @@ export default function AnalysisResult() {
 
   const fetchAnalysis = async () => {
     try {
-      const { data, error } = await (supabase
-        .from("bill_analyses" as any)
+      const { data, error } = await db("bill_analyses")
         .select("*")
         .eq("id", analysisId)
-        .single() as any);
+        .single();
 
       if (error) throw error;
       setAnalysis(data);
