@@ -128,8 +128,11 @@ serve(async (req) => {
       throw new Error("Either fileUrl or fileBase64 must be provided");
     }
 
-    // For PDFs, we need to inform OpenAI it's a PDF (it will try to extract images/text)
-    // OpenAI Vision can handle PDFs if sent as base64
+    // Check if the file is a PDF - OpenAI Vision doesn't support PDFs
+    if (imageMimeType.includes("pdf")) {
+      throw new Error("PDFs não são suportados. Por favor, envie uma imagem (JPG, PNG) ou tire uma foto da sua conta de energia.");
+    }
+
     const imageDataUrl = `data:${imageMimeType};base64,${imageBase64}`;
 
     // Call OpenAI Vision API to analyze the bill

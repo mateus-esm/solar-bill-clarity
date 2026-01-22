@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Upload, FileText, X, Image } from "lucide-react";
+import { Upload, X, Image } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface BillUploadProps {
@@ -53,14 +53,12 @@ export function BillUpload({ onFileSelect, file, onClear }: BillUploadProps) {
   };
 
   const isValidFileType = (file: File) => {
-    const validTypes = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+    // Only accept image types - PDFs are not supported by OpenAI Vision API
+    const validTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
     return validTypes.includes(file.type);
   };
 
-  const getFileIcon = (file: File) => {
-    if (file.type === "application/pdf") {
-      return <FileText className="h-8 w-8 text-primary" />;
-    }
+  const getFileIcon = () => {
     return <Image className="h-8 w-8 text-primary" />;
   };
 
@@ -83,7 +81,7 @@ export function BillUpload({ onFileSelect, file, onClear }: BillUploadProps) {
           >
             <input
               type="file"
-              accept="image/*,.pdf"
+              accept="image/jpeg,image/png,image/webp,image/gif"
               onChange={handleFileInput}
               className="hidden"
             />
@@ -98,7 +96,7 @@ export function BillUpload({ onFileSelect, file, onClear }: BillUploadProps) {
                 Arraste sua conta de energia aqui
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                ou clique para selecionar (PDF ou Foto)
+                ou clique para selecionar (JPG, PNG ou foto)
               </p>
             </div>
           </motion.label>
@@ -112,7 +110,7 @@ export function BillUpload({ onFileSelect, file, onClear }: BillUploadProps) {
           >
             <div className="flex items-center gap-4">
               <div className="rounded-lg bg-primary/10 p-3">
-                {getFileIcon(file)}
+                {getFileIcon()}
               </div>
               <div>
                 <p className="font-medium text-foreground line-clamp-1">
