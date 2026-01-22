@@ -1,0 +1,402 @@
+import { useState, useEffect } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { motion } from "framer-motion";
+import { 
+  ArrowLeft, 
+  Upload,
+  Calendar,
+  Sun,
+  Zap,
+  Loader2,
+  FileText,
+  X
+} from "lucide-react";
+import soloLogo from "@/assets/solo-logo.png";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+
+const monthNames = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+];
+
+export default function BillAnalyze() {
+  const [file, setFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [monitoredGeneration, setMonitoredGeneration] = useState("");
+  const [referenceMonth, setReferenceMonth] = useState(new Date().getMonth() + 1);
+  const [referenceYear, setReferenceYear] = useState(new Date().getFullYear());
+  const [isLoading, setIsLoading] = useState(false);
+  const [solarSystemId, setSolarSystemId] = useState<string | null>(null);
+  const [expectedGeneration, setExpectedGeneration] = useState<number>(0);
+
+  const { user, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      navigate("/auth");
+    }
+  }, [user, authLoading, navigate]);
+
+  useEffect(() => {
+    const month = searchParams.get("month");
+    const year = searchParams.get("year");
+    if (month) setReferenceMonth(parseInt(month));
+    if (year) setReferenceYear(parseInt(year));
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (user && id) {
+      fetchSolarSystem();
+    }
+  }, [user, id]);
+
+  const fetchSolarSystem = async () => {
+    try {
+      const { data, error } = await (supabase
+        .from("solar_systems" as any)
+        .select("id, expected_monthly_generation")
+        .eq("property_id", id)
+        .single() as any);
+
+      if (!error && data) {
+        setSolarSystemId(data.id);
+        setExpectedGeneration(data.expected_monthly_generation || 0);
+      }
+    } catch (error) {
+      console.error("Error fetching solar system:", error);
+    }
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDragIn = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragOut = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const droppedFile = files[0];
+      if (isValidFileType(droppedFile)) {
+        setFile(droppedFile);
+      } else {
+        toast({
+          title: "Arquivo inválido",
+          description: "Por favor, envie uma imagem ou PDF",
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  const isValidFileType = (file: File) => {
+    return file.type.match(/^image\/(jpeg|png|webp)$/) || file.type === "application/pdf";
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      if (isValidFileType(files[0])) {
+        setFile(files[0]);
+      } else {
+        toast({
+          title: "Arquivo inválido",
+          description: "Por favor, envie uma imagem ou PDF",
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!file || !monitoredGeneration || !user || !id) {
+      toast({
+        title: "Campos obrigatórios",
+        description: "Por favor, envie a conta e informe a geração",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // Upload file to storage
+      const fileExt = file.name.split(".").pop();
+      const fileName = `${user.id}/${id}/${referenceYear}-${referenceMonth}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from("bills")
+        .upload(fileName, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from("bills")
+        .getPublicUrl(fileName);
+
+      // Create analysis record
+      const { data: analysis, error: analysisError } = await (supabase
+        .from("bill_analyses" as any)
+        .insert({
+          property_id: id,
+          solar_system_id: solarSystemId,
+          reference_month: referenceMonth,
+          reference_year: referenceYear,
+          bill_file_url: urlData.publicUrl,
+          monitored_generation_kwh: parseFloat(monitoredGeneration),
+          expected_generation_kwh: expectedGeneration,
+          status: "processing",
+        })
+        .select()
+        .single() as any);
+
+      if (analysisError) throw analysisError;
+      if (!analysis) throw new Error("Failed to create analysis");
+
+      // Call edge function for OCR analysis
+      const { data: ocrResult, error: ocrError } = await supabase.functions.invoke(
+        "analyze-bill",
+        {
+          body: {
+            analysisId: analysis.id,
+            fileUrl: urlData.publicUrl,
+            expectedGeneration,
+            monitoredGeneration: parseFloat(monitoredGeneration),
+          },
+        }
+      );
+
+      if (ocrError) {
+        console.error("OCR Error:", ocrError);
+        // Still navigate to results, will show pending status
+      }
+
+      toast({
+        title: "Análise iniciada!",
+        description: "Sua conta está sendo processada pela IA",
+      });
+
+      navigate(`/property/${id}/analysis/${analysis.id}`);
+    } catch (error: any) {
+      console.error("Error creating analysis:", error);
+      toast({
+        title: "Erro",
+        description: error.message || "Não foi possível iniciar a análise",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
+        <div className="container flex h-16 items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => navigate(`/property/${id}`)}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <img src={soloLogo} alt="Solo Energia" className="h-8 w-auto" />
+        </div>
+      </header>
+
+      <main className="container py-8 max-w-xl">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <div className="mb-6">
+            <div className="h-12 w-12 rounded-xl gradient-bg flex items-center justify-center mb-4">
+              <FileText className="h-6 w-6 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-foreground">
+              Analisar Conta de Energia
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Envie sua fatura para análise automática com IA
+            </p>
+          </div>
+
+          <div className="space-y-6">
+            {/* Month/Year Selection */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Mês de referência</Label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <select
+                    value={referenceMonth}
+                    onChange={(e) => setReferenceMonth(parseInt(e.target.value))}
+                    className="w-full h-10 pl-10 pr-4 bg-card border border-input rounded-lg text-foreground"
+                  >
+                    {monthNames.map((month, index) => (
+                      <option key={index} value={index + 1}>{month}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Ano</Label>
+                <select
+                  value={referenceYear}
+                  onChange={(e) => setReferenceYear(parseInt(e.target.value))}
+                  className="w-full h-10 px-4 bg-card border border-input rounded-lg text-foreground"
+                >
+                  {[2025, 2024, 2023].map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* File Upload */}
+            <div className="space-y-2">
+              <Label>Conta de energia (foto ou PDF)</Label>
+              {!file ? (
+                <label
+                  className={`upload-zone flex flex-col items-center justify-center ${
+                    isDragging ? "dragging" : ""
+                  }`}
+                  onDragEnter={handleDragIn}
+                  onDragLeave={handleDragOut}
+                  onDragOver={handleDrag}
+                  onDrop={handleDrop}
+                >
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    onChange={handleFileChange}
+                  />
+                  <Upload className="h-10 w-10 text-muted-foreground mb-3" />
+                  <p className="text-sm font-medium text-foreground">
+                    Arraste sua conta aqui
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    ou clique para selecionar
+                  </p>
+                </label>
+              ) : (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="flex items-center gap-4 p-4 bg-card rounded-xl border border-border"
+                >
+                  <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <FileText className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">
+                      {file.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {(file.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setFile(null)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </motion.div>
+              )}
+            </div>
+
+            {/* Monitored Generation */}
+            <div className="space-y-2">
+              <Label htmlFor="monitoredGeneration">
+                Geração do monitoramento (kWh)
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Valor total gerado no mês, conforme app do inversor
+              </p>
+              <div className="relative">
+                <Sun className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="monitoredGeneration"
+                  type="number"
+                  placeholder="Ex: 450"
+                  value={monitoredGeneration}
+                  onChange={(e) => setMonitoredGeneration(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+
+            {/* Expected Generation Info */}
+            {expectedGeneration > 0 && (
+              <div className="p-4 rounded-xl bg-primary/10 border border-primary/20">
+                <div className="flex items-center gap-2 mb-2">
+                  <Zap className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium text-foreground">
+                    Geração esperada do sistema
+                  </span>
+                </div>
+                <p className="text-2xl font-bold gradient-text">
+                  {expectedGeneration.toFixed(0)} kWh/mês
+                </p>
+              </div>
+            )}
+
+            <Button
+              variant="gradient"
+              size="lg"
+              className="w-full"
+              onClick={handleSubmit}
+              disabled={!file || !monitoredGeneration || isLoading}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Processando...
+                </>
+              ) : (
+                <>
+                  <Zap className="h-5 w-5" />
+                  Analisar Conta
+                </>
+              )}
+            </Button>
+          </div>
+        </motion.div>
+      </main>
+    </div>
+  );
+}
