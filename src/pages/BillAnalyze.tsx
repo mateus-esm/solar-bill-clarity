@@ -275,7 +275,7 @@ export default function BillAnalyze() {
                   onChange={(e) => setReferenceYear(parseInt(e.target.value))}
                   className="w-full h-10 px-4 bg-card border border-input rounded-lg text-foreground"
                 >
-                  {[2025, 2024, 2023].map(year => (
+                  {[2026, 2025, 2024, 2023].map(year => (
                     <option key={year} value={year}>{year}</option>
                   ))}
                 </select>
