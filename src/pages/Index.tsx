@@ -36,6 +36,17 @@ export default function Index() {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const { toast } = useToast();
 
+  // Edge functions/DB can return numeric fields as strings (e.g. Postgres numeric)
+  // Ensure we always store numbers in state so UI formatting (toFixed) never crashes.
+  const toNumber = (value: unknown, fallback = 0): number => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
+    }
+    return fallback;
+  };
+
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -78,31 +89,37 @@ export default function Index() {
       
       // Build the cost breakdown
       const detalhamento = [];
-      if (result.energy_cost) {
-        detalhamento.push({ name: "Energia", value: result.energy_cost, color: "hsl(24, 95%, 53%)" });
+      const energyCost = toNumber(result.energy_cost, 0);
+      const icmsCost = toNumber(result.icms_cost, 0);
+      const pisCofinsCost = toNumber(result.pis_cofins_cost, 0);
+      const publicLightingCost = toNumber(result.public_lighting_cost, 0);
+      const availabilityCost = toNumber(result.availability_cost, 0);
+
+      if (energyCost > 0) {
+        detalhamento.push({ name: "Energia", value: energyCost, color: "hsl(24, 95%, 53%)" });
       }
-      if (result.icms_cost) {
-        detalhamento.push({ name: "ICMS", value: result.icms_cost, color: "hsl(45, 100%, 51%)" });
+      if (icmsCost > 0) {
+        detalhamento.push({ name: "ICMS", value: icmsCost, color: "hsl(45, 100%, 51%)" });
       }
-      if (result.pis_cofins_cost) {
-        detalhamento.push({ name: "PIS/COFINS", value: result.pis_cofins_cost, color: "hsl(210, 40%, 50%)" });
+      if (pisCofinsCost > 0) {
+        detalhamento.push({ name: "PIS/COFINS", value: pisCofinsCost, color: "hsl(210, 40%, 50%)" });
       }
-      if (result.public_lighting_cost) {
-        detalhamento.push({ name: "CIP", value: result.public_lighting_cost, color: "hsl(280, 60%, 50%)" });
+      if (publicLightingCost > 0) {
+        detalhamento.push({ name: "CIP", value: publicLightingCost, color: "hsl(280, 60%, 50%)" });
       }
-      if (result.availability_cost) {
-        detalhamento.push({ name: "Disponibilidade", value: result.availability_cost, color: "hsl(160, 60%, 45%)" });
+      if (availabilityCost > 0) {
+        detalhamento.push({ name: "Disponibilidade", value: availabilityCost, color: "hsl(160, 60%, 45%)" });
       }
 
       setAnalysisResult({
-        consumoReal: result.real_consumption_kwh || 0,
-        consumoFaturado: result.billed_consumption_kwh || 0,
-        valorTotal: result.total_amount || 0,
+        consumoReal: toNumber(result.real_consumption_kwh, 0),
+        consumoFaturado: toNumber(result.billed_consumption_kwh, 0),
+        valorTotal: toNumber(result.total_amount, 0),
         energiaGerada: monitoredGeneration,
-        energiaInjetada: result.injected_energy_kwh || 0,
-        creditosUsados: result.compensated_energy_kwh || 0,
-        creditosAcumulados: result.current_credits_kwh || 0,
-        economia: result.estimated_savings || 0,
+        energiaInjetada: toNumber(result.injected_energy_kwh, 0),
+        creditosUsados: toNumber(result.compensated_energy_kwh, 0),
+        creditosAcumulados: toNumber(result.current_credits_kwh, 0),
+        economia: toNumber(result.estimated_savings, 0),
         detalhamento,
         alerts: result.alerts || [],
         distribuidora: result.distributor || "Não identificada",
