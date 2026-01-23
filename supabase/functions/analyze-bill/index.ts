@@ -38,35 +38,138 @@ interface ExtractedBillData {
   tariff_flag?: string;
 }
 
+function toNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value === "string") {
+    const raw = value.trim();
+    if (!raw) return undefined;
+
+    const hasDot = raw.includes(".");
+    const hasComma = raw.includes(",");
+
+    // Handle common pt-BR formats:
+    // - "4.320,00" -> 4320.00
+    // - "4320,00"  -> 4320.00
+    // - "4320.00"  -> 4320.00
+    let normalized = raw;
+    if (hasDot && hasComma) {
+      normalized = raw.replace(/\./g, "").replace(/,/g, ".");
+    } else if (hasComma && !hasDot) {
+      normalized = raw.replace(/,/g, ".");
+    }
+
+    const cleaned = normalized.replace(/[^0-9.\-]/g, "");
+    if (!cleaned || cleaned === "-" || cleaned === ".") return undefined;
+
+    const parsed = Number.parseFloat(cleaned);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function toInt(value: unknown): number | undefined {
+  const n = toNumber(value);
+  if (n === undefined) return undefined;
+  const i = Math.trunc(n);
+  return Number.isFinite(i) ? i : undefined;
+}
+
+function toStringOrUndefined(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const s = value.trim();
+    return s ? s : undefined;
+  }
+  return undefined;
+}
+
 async function downloadAndConvertToBase64(url: string, supabaseServiceKey?: string): Promise<{ base64: string; mimeType: string }> {
   console.log("Downloading file from:", url);
-  
-  // For private Supabase storage buckets, we need to convert public URL to authenticated URL
-  let fetchUrl = url;
-  const headers: Record<string, string> = {};
-  
-  if (url.includes("supabase.co/storage") && supabaseServiceKey) {
-    // Convert public URL format to authenticated format
-    // From: .../storage/v1/object/public/bucket/path
-    // To: .../storage/v1/object/bucket/path (with auth header)
-    fetchUrl = url.replace("/object/public/", "/object/");
-    headers["Authorization"] = `Bearer ${supabaseServiceKey}`;
-    console.log("Using authenticated URL:", fetchUrl);
+
+  // Prefer using Supabase Storage download with Service Role.
+  // This works for PRIVATE buckets even if the provided URL is `/object/public/...`.
+  if (supabaseServiceKey && url.includes("/storage/v1/object/")) {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    if (!supabaseUrl) {
+      throw new Error("SUPABASE_URL not configured");
+    }
+
+    try {
+      const parsed = new URL(url);
+      const parts = parsed.pathname.split("/").filter(Boolean);
+
+      // Expect: /storage/v1/object/(public|sign)?/<bucket>/<path...>
+      const objectIndex = parts.findIndex((p) => p === "object");
+      if (objectIndex === -1) {
+        throw new Error("Invalid Supabase Storage URL (missing /object)");
+      }
+
+      let i = objectIndex + 1;
+      if (parts[i] === "public" || parts[i] === "sign") i += 1;
+
+      const bucket = parts[i];
+      const objectPath = parts.slice(i + 1).join("/");
+
+      if (!bucket || !objectPath) {
+        throw new Error("Invalid Supabase Storage URL (missing bucket/path)");
+      }
+
+      console.log("Resolved storage download:", { bucket, objectPath });
+
+      const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: { persistSession: false },
+      });
+
+      const { data, error } = await supabase.storage.from(bucket).download(objectPath);
+      if (error) {
+        console.error("Storage download error:", error);
+        throw new Error(`Storage download failed: ${error.message}`);
+      }
+      if (!data) {
+        throw new Error("Storage download failed: empty response");
+      }
+
+      const contentType = data.type || "application/octet-stream";
+      const arrayBuffer = await data.arrayBuffer();
+      const base64 = base64Encode(arrayBuffer);
+
+      console.log(
+        "File downloaded via storage API, size:",
+        arrayBuffer.byteLength,
+        "bytes, type:",
+        contentType,
+      );
+
+      return { base64, mimeType: contentType };
+    } catch (e) {
+      console.warn(
+        "Storage URL parse/download failed, falling back to fetch:",
+        e instanceof Error ? e.message : e,
+      );
+      // fall through to fetch fallback below
+    }
   }
-  
-  const response = await fetch(fetchUrl, { headers });
+
+  // Fallback: fetch (useful for non-Supabase URLs)
+  const headers: Record<string, string> = {};
+  if (supabaseServiceKey) {
+    headers["Authorization"] = `Bearer ${supabaseServiceKey}`;
+    headers["apikey"] = supabaseServiceKey;
+  }
+
+  const response = await fetch(url, { headers });
   if (!response.ok) {
     const errorText = await response.text();
     console.error("Download failed:", response.status, errorText);
     throw new Error(`Failed to download file: ${response.status} - ${errorText}`);
   }
-  
+
   const contentType = response.headers.get("content-type") || "application/octet-stream";
   const arrayBuffer = await response.arrayBuffer();
   const base64 = base64Encode(arrayBuffer);
-  
+
   console.log("File downloaded, size:", arrayBuffer.byteLength, "bytes, type:", contentType);
-  
+
   return { base64, mimeType: contentType };
 }
 
@@ -229,6 +332,29 @@ IMPORTANTE:
       extractedData = {};
     }
 
+    // Normalize types (OpenAI sometimes returns numbers as strings)
+    const normalizedData: ExtractedBillData = {
+      account_holder: toStringOrUndefined((extractedData as any).account_holder),
+      account_number: toStringOrUndefined((extractedData as any).account_number),
+      distributor: toStringOrUndefined((extractedData as any).distributor),
+      reference_month: toInt((extractedData as any).reference_month),
+      reference_year: toInt((extractedData as any).reference_year),
+      billed_consumption_kwh: toNumber((extractedData as any).billed_consumption_kwh),
+      injected_energy_kwh: toNumber((extractedData as any).injected_energy_kwh),
+      compensated_energy_kwh: toNumber((extractedData as any).compensated_energy_kwh),
+      previous_credits_kwh: toNumber((extractedData as any).previous_credits_kwh),
+      current_credits_kwh: toNumber((extractedData as any).current_credits_kwh),
+      total_amount: toNumber((extractedData as any).total_amount),
+      energy_cost: toNumber((extractedData as any).energy_cost),
+      availability_cost: toNumber((extractedData as any).availability_cost),
+      public_lighting_cost: toNumber((extractedData as any).public_lighting_cost),
+      icms_cost: toNumber((extractedData as any).icms_cost),
+      pis_cofins_cost: toNumber((extractedData as any).pis_cofins_cost),
+      fine_amount: toNumber((extractedData as any).fine_amount),
+      tariff_flag: toStringOrUndefined((extractedData as any).tariff_flag),
+    };
+    extractedData = normalizedData;
+
     // Calculate derived metrics
     const realConsumption = (extractedData.billed_consumption_kwh || 0) + (extractedData.compensated_energy_kwh || 0);
     const generationEfficiency = expectedGeneration > 0 
@@ -242,8 +368,8 @@ IMPORTANTE:
       alerts.push(`Geração abaixo do esperado: ${generationEfficiency.toFixed(1)}% da expectativa`);
     }
     
-    if (extractedData.fine_amount && extractedData.fine_amount > 0) {
-      alerts.push(`Multa/juros detectados: R$ ${extractedData.fine_amount.toFixed(2)}`);
+    if ((extractedData.fine_amount || 0) > 0) {
+      alerts.push(`Multa/juros detectados: R$ ${(extractedData.fine_amount || 0).toFixed(2)}`);
     }
 
     const injected = extractedData.injected_energy_kwh || 0;
@@ -272,7 +398,7 @@ IMPORTANTE:
           success: true, 
           data: {
             ...extractedData,
-            real_consumption_kwh: realConsumption,
+             real_consumption_kwh: realConsumption,
             generation_efficiency: generationEfficiency,
             estimated_savings: estimatedSavings,
             alerts,
