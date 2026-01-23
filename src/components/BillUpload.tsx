@@ -53,9 +53,15 @@ export function BillUpload({ onFileSelect, file, onClear }: BillUploadProps) {
   };
 
   const isValidFileType = (file: File) => {
-    // Only accept image types - PDFs are not supported by OpenAI Vision API
-    const validTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-    return validTypes.includes(file.type);
+    // Accept images and PDFs (PDFs are converted to images client-side)
+    const validTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+      "application/pdf",
+    ];
+    return validTypes.includes(file.type) || file.name.toLowerCase().endsWith(".pdf");
   };
 
   const getFileIcon = () => {
@@ -81,7 +87,7 @@ export function BillUpload({ onFileSelect, file, onClear }: BillUploadProps) {
           >
             <input
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
+              accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
               onChange={handleFileInput}
               className="hidden"
             />
@@ -96,7 +102,7 @@ export function BillUpload({ onFileSelect, file, onClear }: BillUploadProps) {
                 Arraste sua conta de energia aqui
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                ou clique para selecionar (JPG, PNG ou foto)
+                ou clique para selecionar (JPG, PNG, PDF)
               </p>
             </div>
           </motion.label>
