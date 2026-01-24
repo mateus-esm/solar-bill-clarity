@@ -280,6 +280,11 @@ async function performOCRExtraction(imageDataUrl: string, openaiApiKey: string):
   const ocrPrompt = `Você é um OCR especializado em contas de energia elétrica brasileiras. 
 Sua única tarefa é EXTRAIR dados da imagem com máxima precisão. NÃO faça análises ou recomendações.
 
+ATENÇÃO ESPECIAL: Procure pela tabela "DESCRIÇÃO DO FATURAMENTO" ou similar que contém os itens cobrados.
+Esta tabela geralmente tem colunas como: Item, Unid., Quant., Preço unit., Valor, PIS/COFINS, Base Calc., Alíquota, ICMS, Tarifa, etc.
+SOME TODOS os valores da coluna ICMS para obter o icms_cost_gross.
+SOME TODOS os valores da coluna de VALOR/Total para obter a energia bruta antes de créditos.
+
 Extraia TODOS os campos disponíveis e retorne um JSON válido:
 
 {
@@ -301,7 +306,7 @@ Extraia TODOS os campos disponíveis e retorne um JSON válido:
   "meter_number": "número do medidor",
   "meter_reading_previous": leitura anterior em kWh,
   "meter_reading_current": leitura atual em kWh,
-  "measured_consumption_kwh": consumo medido total em kWh,
+  "measured_consumption_kwh": consumo medido total em kWh (da tabela de medição),
   
   "injected_energy_kwh": energia injetada na rede em kWh (geração solar),
   "compensated_energy_kwh": energia compensada em kWh,
@@ -316,21 +321,25 @@ Extraia TODOS os campos disponíveis e retorne um JSON válido:
   
   "energy_cost_te": custo da energia TE em R$,
   "energy_cost_tusd": custo do TUSD em R$,
-  "energy_cost": custo total de energia (TE + TUSD) em R$,
+  "energy_cost": custo total de energia cobrado (TE + TUSD) após compensações em R$,
+  "energy_cost_gross": valor BRUTO de energia ANTES de créditos/compensações (soma positiva da tabela de faturamento) em R$,
   "availability_cost": custo de disponibilidade/demanda mínima em R$,
   "public_lighting_cost": contribuição de iluminação pública (CIP/COSIP) em R$,
   
   "icms_base": base de cálculo do ICMS em R$,
   "icms_rate": alíquota do ICMS em % (ex: 25 para 25%),
-  "icms_cost": valor do ICMS em R$,
+  "icms_cost": valor FINAL do ICMS cobrado (pode ser 0 se compensado) em R$,
+  "icms_cost_gross": valor BRUTO de ICMS da tabela de faturamento (soma da coluna ICMS) em R$,
   
   "pis_base": base de cálculo do PIS em R$,
   "pis_rate": alíquota do PIS em % (ex: 0.65),
-  "pis_cost": valor do PIS em R$,
+  "pis_cost": valor do PIS cobrado em R$,
+  "pis_cost_gross": valor bruto do PIS antes de compensações em R$,
   
   "cofins_base": base de cálculo do COFINS em R$,
   "cofins_rate": alíquota do COFINS em % (ex: 3),
-  "cofins_cost": valor do COFINS em R$,
+  "cofins_cost": valor do COFINS cobrado em R$,
+  "cofins_cost_gross": valor bruto do COFINS antes de compensações em R$,
   
   "sectoral_charges": encargos setoriais (CDE, PROINFA, etc) em R$,
   "fines_amount": multas por atraso em R$,
@@ -344,8 +353,19 @@ Extraia TODOS os campos disponíveis e retorne um JSON válido:
   "demand_excess_cost": custo de ultrapassagem de demanda em R$,
   
   "subtotal_before_taxes": subtotal antes de impostos em R$,
-  "credit_discount": desconto de créditos de energia solar em R$,
-  "total_amount": valor total final da fatura em R$,
+  "subtotal_gross": subtotal BRUTO da tabela de faturamento (antes de créditos negativos) em R$,
+  "credit_discount": desconto de créditos de energia solar em R$ (geralmente valor negativo na fatura),
+  "total_amount": valor total final da fatura a pagar em R$,
+  
+  "consumption_by_type": [
+    {
+      "item": "nome do item (ex: Energia Ativa Fornecida TE, Energia Ativa TUSD, etc)",
+      "quantity_kwh": quantidade em kWh,
+      "unit_price": preço unitário,
+      "total_value": valor total deste item,
+      "icms": valor de ICMS deste item
+    }
+  ],
   
   "legal_notices": ["lista de avisos legais importantes encontrados"],
   "tariff_notes": ["notas sobre tarifas ou reajustes mencionados"],
@@ -362,7 +382,9 @@ REGRAS CRÍTICAS:
 5. Se um campo não existe na conta, use null
 6. Para campos de lista, retorne array vazio [] se não encontrar
 7. Seja PRECISO - prefira null a inventar valores
-8. Procure em TODAS as áreas da conta, incluindo letras pequenas`;
+8. Procure em TODAS as áreas da conta, incluindo letras pequenas
+9. IMPORTANTE: Capture valores BRUTOS (gross) da tabela de descrição do faturamento mesmo se o total for zero
+10. Valores negativos na tabela (créditos) devem ser somados no credit_discount`;
 
   console.log("🔍 ETAPA 1: Iniciando OCR de alta precisão...");
 

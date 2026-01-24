@@ -154,49 +154,74 @@ export default function Index() {
       const result = data.data;
       const rawData = data.rawData || result;
 
-      // Build cost breakdown
+      // Build cost breakdown - use gross values when available for showing what was saved
       const detalhamento: Array<{ name: string; value: number; color: string }> = [];
       const energyCost = toNumber(result.energy_cost, 0);
+      const energyCostGross = toNumber(rawData.energy_cost_gross || rawData.subtotal_gross, 0);
       const icmsCost = toNumber(result.icms_cost, 0);
+      const icmsCostGross = toNumber(rawData.icms_cost_gross, 0);
       const pisCost = toNumber(result.pis_cost, 0);
+      const pisCostGross = toNumber(rawData.pis_cost_gross, 0);
       const cofinsCost = toNumber(result.cofins_cost, 0);
+      const cofinsCostGross = toNumber(rawData.cofins_cost_gross, 0);
       const pisCofinsCost = toNumber(result.pis_cofins_cost, 0) || (pisCost + cofinsCost);
+      const pisCofinsCostGross = pisCostGross + cofinsCostGross;
       const publicLightingCost = toNumber(result.public_lighting_cost, 0);
       const availabilityCost = toNumber(result.availability_cost, 0);
       const sectoralCharges = toNumber(result.sectoral_charges, 0);
+      const creditDiscount = Math.abs(toNumber(rawData.credit_discount, 0));
 
-      if (energyCost > 0) detalhamento.push({ name: "Energia", value: energyCost, color: "hsl(24, 95%, 53%)" });
-      if (icmsCost > 0) detalhamento.push({ name: "ICMS", value: icmsCost, color: "hsl(45, 100%, 51%)" });
-      if (pisCofinsCost > 0) detalhamento.push({ name: "PIS/COFINS", value: pisCofinsCost, color: "hsl(210, 40%, 50%)" });
+      // Use gross values for chart if final costs are zero (compensated by solar)
+      const chartEnergyCost = energyCost > 0 ? energyCost : energyCostGross;
+      const chartIcmsCost = icmsCost > 0 ? icmsCost : icmsCostGross;
+      const chartPisCofinsCost = pisCofinsCost > 0 ? pisCofinsCost : pisCofinsCostGross;
+
+      if (chartEnergyCost > 0) detalhamento.push({ name: "Energia", value: chartEnergyCost, color: "hsl(24, 95%, 53%)" });
+      if (chartIcmsCost > 0) detalhamento.push({ name: "ICMS", value: chartIcmsCost, color: "hsl(45, 100%, 51%)" });
+      if (chartPisCofinsCost > 0) detalhamento.push({ name: "PIS/COFINS", value: chartPisCofinsCost, color: "hsl(210, 40%, 50%)" });
       if (publicLightingCost > 0) detalhamento.push({ name: "Ilum. Pública", value: publicLightingCost, color: "hsl(280, 60%, 50%)" });
       if (availabilityCost > 0) detalhamento.push({ name: "Disponibilidade", value: availabilityCost, color: "hsl(160, 60%, 45%)" });
       if (sectoralCharges > 0) detalhamento.push({ name: "Encargos", value: sectoralCharges, color: "hsl(0, 60%, 50%)" });
 
-      // Build taxes for TaxExplainer
+      // Build taxes for TaxExplainer - show gross values with compensation info
       const taxes: AnalysisResult["taxes"] = [];
       const totalAmount = toNumber(result.total_amount, 0);
+      const wasFullyCompensated = totalAmount === 0 && (icmsCostGross > 0 || energyCostGross > 0);
       
-      if (icmsCost > 0) {
+      // ICMS - show gross if compensated
+      const displayIcms = icmsCost > 0 ? icmsCost : icmsCostGross;
+      if (displayIcms > 0) {
+        const isCompensated = icmsCost === 0 && icmsCostGross > 0;
         taxes.push({
           id: "icms",
           name: "ICMS",
-          value: icmsCost,
+          value: displayIcms,
           rate: toNumber(rawData.icms_rate),
           whatIs: "O ICMS (Imposto sobre Circulação de Mercadorias e Serviços) é um imposto estadual que incide sobre a energia elétrica. Cada estado tem sua própria alíquota.",
-          yourValue: `Você pagou R$ ${icmsCost.toFixed(2)}, que representa ${totalAmount > 0 ? ((icmsCost / totalAmount) * 100).toFixed(1) : 0}% da sua conta.`,
-          tip: "Consumidores de baixa renda podem ter isenção de ICMS. Verifique com sua distribuidora.",
-          status: toNumber(rawData.icms_rate) > 25 ? "high" : "normal",
+          yourValue: isCompensated 
+            ? `Valor bruto de R$ ${displayIcms.toFixed(2)} foi compensado pelos créditos solares. Você não pagou nada!`
+            : `Você pagou R$ ${displayIcms.toFixed(2)}, que representa ${totalAmount > 0 ? ((displayIcms / totalAmount) * 100).toFixed(1) : 0}% da sua conta.`,
+          tip: isCompensated 
+            ? "✅ Economia com energia solar: seu ICMS foi totalmente compensado este mês!"
+            : "Consumidores de baixa renda podem ter isenção de ICMS. Verifique com sua distribuidora.",
+          status: isCompensated ? "low" : (toNumber(rawData.icms_rate) > 25 ? "high" : "normal"),
         });
       }
 
-      if (pisCofinsCost > 0) {
+      // PIS/COFINS - show gross if compensated
+      const displayPisCofins = pisCofinsCost > 0 ? pisCofinsCost : pisCofinsCostGross;
+      if (displayPisCofins > 0) {
+        const isCompensated = pisCofinsCost === 0 && pisCofinsCostGross > 0;
         taxes.push({
           id: "pis_cofins",
           name: "PIS/COFINS",
-          value: pisCofinsCost,
+          value: displayPisCofins,
           whatIs: "PIS (Programa de Integração Social) e COFINS (Contribuição para o Financiamento da Seguridade Social) são tributos federais que incidem sobre a receita da distribuidora.",
-          yourValue: `Você pagou R$ ${pisCofinsCost.toFixed(2)} de PIS/COFINS.`,
-          status: "normal",
+          yourValue: isCompensated
+            ? `Valor bruto de R$ ${displayPisCofins.toFixed(2)} foi compensado pelos créditos solares. Você não pagou nada!`
+            : `Você pagou R$ ${displayPisCofins.toFixed(2)} de PIS/COFINS.`,
+          tip: isCompensated ? "✅ Economia com energia solar!" : undefined,
+          status: isCompensated ? "low" : "normal",
         });
       }
 
@@ -221,6 +246,22 @@ export default function Index() {
           tip: "Esta taxa é obrigatória e não pode ser eliminada, mas com solar você pode chegar perto de pagar apenas isso!",
           status: "normal",
         });
+      }
+
+      // If no taxes but we have gross values, show compensation summary
+      if (taxes.length === 0 && wasFullyCompensated) {
+        const totalGross = energyCostGross + icmsCostGross + pisCofinsCostGross;
+        if (totalGross > 0) {
+          taxes.push({
+            id: "economia_solar",
+            name: "Economia com Energia Solar",
+            value: totalGross,
+            whatIs: "Este é o valor total que você teria pago sem energia solar. Graças aos seus créditos solares, tudo foi compensado!",
+            yourValue: `Você economizou R$ ${totalGross.toFixed(2)} este mês graças à energia solar.`,
+            tip: "🌞 Parabéns! Sua energia solar está trabalhando a todo vapor!",
+            status: "low",
+          });
+        }
       }
 
       // Build alerts from string array or structured array
@@ -314,15 +355,20 @@ export default function Index() {
       else if (scoreValue >= 40) scoreLabel = "Regular";
       else scoreLabel = "Atenção";
 
+      // Calculate real savings - if total is 0, use gross values
+      const calculatedSavings = wasFullyCompensated 
+        ? (energyCostGross + icmsCostGross + pisCofinsCostGross + creditDiscount)
+        : toNumber(result.estimated_savings, 0);
+
       setAnalysisResult({
-        consumoReal: toNumber(result.real_consumption_kwh, 0),
-        consumoFaturado: toNumber(result.billed_consumption_kwh || result.measured_consumption_kwh, 0),
+        consumoReal: toNumber(result.real_consumption_kwh || rawData.measured_consumption_kwh, 0),
+        consumoFaturado: toNumber(result.billed_consumption_kwh || rawData.measured_consumption_kwh, 0),
         valorTotal: totalAmount,
         energiaGerada: monitoredGeneration,
         energiaInjetada: injectedEnergy,
         creditosUsados: toNumber(result.compensated_energy_kwh, 0),
         creditosAcumulados: currentCredits,
-        economia: toNumber(result.estimated_savings, 0),
+        economia: calculatedSavings,
         detalhamento,
         distribuidora: result.distributor || "Não identificada",
         bandeira: result.tariff_flag || "Não identificada",
