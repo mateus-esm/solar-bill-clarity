@@ -84,6 +84,17 @@ export default function AnalysisResult() {
     }
   }, [user, analysisId]);
 
+  // Auto-refresh while processing
+  useEffect(() => {
+    if (analysis?.status === "processing") {
+      const interval = setInterval(() => {
+        fetchAnalysis();
+      }, 3000); // Check every 3 seconds
+      
+      return () => clearInterval(interval);
+    }
+  }, [analysis?.status, analysisId]);
+
   const fetchAnalysis = async () => {
     try {
       const { data, error } = await db("bill_analyses")
