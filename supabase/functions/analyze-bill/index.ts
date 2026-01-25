@@ -1095,7 +1095,9 @@ serve(async (req) => {
       }),
       { 
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 500 
+        // IMPORTANT: Supabase `functions.invoke` treats non-2xx as a transport error.
+        // Returning 200 keeps the error payload accessible to the client (success:false).
+        status: 200
       }
     );
   }
