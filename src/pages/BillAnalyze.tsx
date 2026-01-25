@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 import { db, storage, functions } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
+import { AnalysisStepper, type AnalysisStep } from "@/components/AnalysisStepper";
 
 const monthNames = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -33,6 +34,8 @@ export default function BillAnalyze() {
   const [isLoading, setIsLoading] = useState(false);
   const [solarSystemId, setSolarSystemId] = useState<string | null>(null);
   const [expectedGeneration, setExpectedGeneration] = useState<number>(0);
+  const [step, setStep] = useState<AnalysisStep>("idle");
+  const [stepError, setStepError] = useState<string | undefined>();
 
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -142,6 +145,8 @@ export default function BillAnalyze() {
     }
 
     setIsLoading(true);
+    setStep("uploading");
+    setStepError(undefined);
 
     try {
       // Upload file to storage
@@ -154,12 +159,14 @@ export default function BillAnalyze() {
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
+      // Get public URL (we'll use signed URLs for display)
       const { data: urlData } = storage
         .from("bills")
         .getPublicUrl(fileName);
 
       // Create analysis record
+      setStep("extracting");
+
       const { data: analysis, error: analysisError } = await db("bill_analyses")
         .insert({
           property_id: id,
@@ -177,8 +184,8 @@ export default function BillAnalyze() {
       if (analysisError) throw analysisError;
       if (!analysis) throw new Error("Failed to create analysis");
 
-      // Call edge function for OCR analysis
-      const { data: ocrResult, error: ocrError } = await functions.invoke(
+      // Call edge function for OCR analysis (don't wait for completion)
+      functions.invoke(
         "analyze-bill",
         {
           body: {
@@ -188,21 +195,23 @@ export default function BillAnalyze() {
             monitoredGeneration: parseFloat(monitoredGeneration),
           },
         }
-      );
-
-      if (ocrError) {
-        console.error("OCR Error:", ocrError);
-        // Still navigate to results, will show pending status
-      }
+      ).then(({ error }) => {
+        if (error) {
+          console.error("OCR Error:", error);
+        }
+      });
 
       toast({
         title: "Análise iniciada!",
         description: "Sua conta está sendo processada pela IA",
       });
 
+      // Navigate to results page (will show processing state with stepper)
       navigate(`/property/${id}/analysis/${analysis.id}`);
     } catch (error: any) {
       console.error("Error creating analysis:", error);
+      setStep("error");
+      setStepError(error.message || "Não foi possível iniciar a análise");
       toast({
         title: "Erro",
         description: error.message || "Não foi possível iniciar a análise",
@@ -220,6 +229,8 @@ export default function BillAnalyze() {
       </div>
     );
   }
+
+  const isProcessing = step !== "idle" && step !== "error";
 
   return (
     <div className="min-h-screen bg-background">
@@ -250,6 +261,13 @@ export default function BillAnalyze() {
             </p>
           </div>
 
+          {/* Stepper */}
+          {step !== "idle" && (
+            <div className="mb-6">
+              <AnalysisStepper currentStep={step} errorMessage={stepError} />
+            </div>
+          )}
+
           <div className="space-y-6">
             {/* Month/Year Selection */}
             <div className="grid grid-cols-2 gap-4">
@@ -261,6 +279,7 @@ export default function BillAnalyze() {
                     value={referenceMonth}
                     onChange={(e) => setReferenceMonth(parseInt(e.target.value))}
                     className="w-full h-10 pl-10 pr-4 bg-card border border-input rounded-lg text-foreground"
+                    disabled={isProcessing}
                   >
                     {monthNames.map((month, index) => (
                       <option key={index} value={index + 1}>{month}</option>
@@ -274,6 +293,7 @@ export default function BillAnalyze() {
                   value={referenceYear}
                   onChange={(e) => setReferenceYear(parseInt(e.target.value))}
                   className="w-full h-10 px-4 bg-card border border-input rounded-lg text-foreground"
+                  disabled={isProcessing}
                 >
                   {[2026, 2025, 2024, 2023].map(year => (
                     <option key={year} value={year}>{year}</option>
@@ -289,7 +309,7 @@ export default function BillAnalyze() {
                 <label
                   className={`upload-zone flex flex-col items-center justify-center ${
                     isDragging ? "dragging" : ""
-                  }`}
+                  } ${isProcessing ? "opacity-50 pointer-events-none" : ""}`}
                   onDragEnter={handleDragIn}
                   onDragLeave={handleDragOut}
                   onDragOver={handleDrag}
@@ -300,6 +320,7 @@ export default function BillAnalyze() {
                     className="hidden"
                     accept="image/jpeg,image/png,image/webp,application/pdf"
                     onChange={handleFileChange}
+                    disabled={isProcessing}
                   />
                   <Upload className="h-10 w-10 text-muted-foreground mb-3" />
                   <p className="text-sm font-medium text-foreground">
@@ -326,13 +347,15 @@ export default function BillAnalyze() {
                       {(file.size / 1024 / 1024).toFixed(2)} MB
                     </p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setFile(null)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+                  {!isProcessing && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setFile(null)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
                 </motion.div>
               )}
             </div>
@@ -354,6 +377,7 @@ export default function BillAnalyze() {
                   value={monitoredGeneration}
                   onChange={(e) => setMonitoredGeneration(e.target.value)}
                   className="pl-10"
+                  disabled={isProcessing}
                 />
               </div>
             </div>
@@ -392,6 +416,19 @@ export default function BillAnalyze() {
                 </>
               )}
             </Button>
+
+            {step === "error" && (
+              <Button 
+                variant="outline" 
+                className="w-full" 
+                onClick={() => {
+                  setStep("idle");
+                  setStepError(undefined);
+                }}
+              >
+                Tentar novamente
+              </Button>
+            )}
           </div>
         </motion.div>
       </main>

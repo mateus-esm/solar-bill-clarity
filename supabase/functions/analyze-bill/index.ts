@@ -388,49 +388,93 @@ REGRAS CRÍTICAS:
 
   console.log("🔍 ETAPA 1: Iniciando OCR de alta precisão...");
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${openaiApiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: ocrPrompt },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "Extraia TODOS os dados desta conta de energia:" },
-            { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
-          ],
-        },
-      ],
-      max_tokens: 4000,
-      temperature: 0, // Determinístico para máxima consistência
-    }),
-  });
+  // Helper para fazer a chamada OCR com retry
+  const callOCR = async (attempt: number): Promise<RawBillData> => {
+    console.log(`📤 OCR attempt ${attempt}...`);
+    
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${openaiApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: ocrPrompt },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Extraia TODOS os dados desta conta de energia:" },
+              { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
+            ],
+          },
+        ],
+        max_tokens: 8000, // Aumentado de 4000 para evitar truncamento
+        temperature: 0, // Determinístico para máxima consistência
+      }),
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("OpenAI OCR error:", errorText);
-    throw new Error(`OpenAI OCR error: ${response.status}`);
-  }
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("OpenAI OCR error:", errorText);
+      throw new Error(`OpenAI OCR error: ${response.status}`);
+    }
 
-  const data = await response.json();
-  const content = data.choices[0]?.message?.content || "{}";
-  
-  console.log("📄 OCR raw response length:", content.length);
+    const data = await response.json();
+    const content = data.choices[0]?.message?.content || "{}";
+    const finishReason = data.choices[0]?.finish_reason;
+    
+    console.log("📄 OCR raw response length:", content.length, "finish_reason:", finishReason);
 
-  // Parse e normalize
+    // Verificar se a resposta foi truncada
+    if (finishReason === "length") {
+      console.warn("⚠️ Response was truncated (finish_reason=length)");
+      if (attempt < 2) {
+        throw new Error("Response truncated, will retry");
+      }
+    }
+
+    // Parse e normalize
+    const cleanedContent = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    
+    try {
+      return JSON.parse(cleanedContent);
+    } catch (parseError) {
+      console.error("Failed to parse OCR response:", parseError);
+      console.log("Raw content (first 1000 chars):", cleanedContent.substring(0, 1000));
+      console.log("Raw content (last 500 chars):", cleanedContent.substring(cleanedContent.length - 500));
+      
+      // Tentar extrair JSON parcial
+      const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          return JSON.parse(jsonMatch[0]);
+        } catch {
+          console.error("Partial JSON extraction also failed");
+        }
+      }
+      
+      if (attempt < 2) {
+        throw new Error("JSON parse failed, will retry");
+      }
+      
+      return {};
+    }
+  };
+
+  // Executar OCR com até 2 tentativas
   let rawData: RawBillData = {};
   try {
-    const cleanedContent = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    rawData = JSON.parse(cleanedContent);
-  } catch (parseError) {
-    console.error("Failed to parse OCR response:", parseError);
-    console.log("Raw content:", content.substring(0, 500));
-    rawData = {};
+    rawData = await callOCR(1);
+  } catch (firstError) {
+    console.warn("First OCR attempt failed:", firstError instanceof Error ? firstError.message : firstError);
+    try {
+      rawData = await callOCR(2);
+    } catch (secondError) {
+      console.error("Second OCR attempt also failed:", secondError);
+      rawData = {};
+    }
   }
 
   // Normalizar todos os campos numéricos
@@ -909,6 +953,28 @@ serve(async (req) => {
 
   } catch (error) {
     console.error("❌ Error in analyze-bill function:", error);
+    
+    // Atualizar status para error no banco de dados se temos analysisId
+    const requestData = await req.clone().json().catch(() => ({}));
+    if (requestData.analysisId) {
+      try {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        
+        await supabase
+          .from("bill_analyses")
+          .update({ 
+            status: "error",
+            ai_analysis: `Erro na análise: ${error instanceof Error ? error.message : "Erro desconhecido"}` 
+          })
+          .eq("id", requestData.analysisId);
+        
+        console.log("📝 Updated analysis status to error");
+      } catch (updateError) {
+        console.error("Failed to update status to error:", updateError);
+      }
+    }
     
     return new Response(
       JSON.stringify({ 
