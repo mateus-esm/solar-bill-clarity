@@ -139,6 +139,97 @@ interface SpecialistAnalysis {
   };
 }
 
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value
+    .map((v) => (typeof v === "string" ? v.trim() : ""))
+    .filter(Boolean);
+  return items.length ? items : [];
+}
+
+function normalizeRawBillData(input: unknown): RawBillData {
+  const raw = (input ?? {}) as Record<string, unknown>;
+  const out: RawBillData = {};
+
+  // Identificação
+  out.account_holder = toStringOrUndefined(raw.account_holder);
+  out.account_number = toStringOrUndefined(raw.account_number);
+  out.cpf_cnpj = toStringOrUndefined(raw.cpf_cnpj);
+  out.distributor = toStringOrUndefined(raw.distributor);
+  out.consumer_class = toStringOrUndefined(raw.consumer_class);
+  out.subclass = toStringOrUndefined(raw.subclass);
+  out.tariff_modality = toStringOrUndefined(raw.tariff_modality);
+
+  // Período
+  out.reference_month = toInt(raw.reference_month);
+  out.reference_year = toInt(raw.reference_year);
+  out.reading_date_current = toStringOrUndefined(raw.reading_date_current);
+  out.reading_date_previous = toStringOrUndefined(raw.reading_date_previous);
+  out.due_date = toStringOrUndefined(raw.due_date);
+  out.billing_days = toInt(raw.billing_days);
+
+  // Medições
+  out.meter_number = toStringOrUndefined(raw.meter_number);
+  out.meter_reading_previous = toNumber(raw.meter_reading_previous);
+  out.meter_reading_current = toNumber(raw.meter_reading_current);
+  out.measured_consumption_kwh = toNumber(raw.measured_consumption_kwh);
+
+  // Energia Solar
+  out.injected_energy_kwh = toNumber(raw.injected_energy_kwh);
+  out.compensated_energy_kwh = toNumber(raw.compensated_energy_kwh);
+  out.previous_credits_kwh = toNumber(raw.previous_credits_kwh);
+  out.current_credits_kwh = toNumber(raw.current_credits_kwh);
+  out.credit_expiry_date = toStringOrUndefined(raw.credit_expiry_date);
+
+  // Tarifas
+  out.tariff_te_kwh = toNumber(raw.tariff_te_kwh);
+  out.tariff_tusd_kwh = toNumber(raw.tariff_tusd_kwh);
+  out.tariff_flag = toStringOrUndefined(raw.tariff_flag);
+  out.tariff_flag_value_kwh = toNumber(raw.tariff_flag_value_kwh);
+
+  // Custos
+  out.energy_cost_te = toNumber(raw.energy_cost_te);
+  out.energy_cost_tusd = toNumber(raw.energy_cost_tusd);
+  out.energy_cost = toNumber(raw.energy_cost);
+  out.availability_cost = toNumber(raw.availability_cost);
+  out.public_lighting_cost = toNumber(raw.public_lighting_cost);
+  out.icms_base = toNumber(raw.icms_base);
+  out.icms_rate = toNumber(raw.icms_rate);
+  out.icms_cost = toNumber(raw.icms_cost);
+  out.pis_base = toNumber(raw.pis_base);
+  out.pis_rate = toNumber(raw.pis_rate);
+  out.pis_cost = toNumber(raw.pis_cost);
+  out.cofins_base = toNumber(raw.cofins_base);
+  out.cofins_rate = toNumber(raw.cofins_rate);
+  out.cofins_cost = toNumber(raw.cofins_cost);
+  out.sectoral_charges = toNumber(raw.sectoral_charges);
+  out.fines_amount = toNumber(raw.fines_amount);
+  out.interest_amount = toNumber(raw.interest_amount);
+  out.other_charges = toNumber(raw.other_charges);
+  out.other_credits = toNumber(raw.other_credits);
+
+  // Demanda (Grupo A)
+  out.demand_contracted_kw = toNumber(raw.demand_contracted_kw);
+  out.demand_measured_kw = toNumber(raw.demand_measured_kw);
+  out.demand_billed_kw = toNumber(raw.demand_billed_kw);
+  out.demand_excess_cost = toNumber(raw.demand_excess_cost);
+
+  // Totais
+  out.subtotal_before_taxes = toNumber(raw.subtotal_before_taxes);
+  out.credit_discount = toNumber(raw.credit_discount);
+  out.total_amount = toNumber(raw.total_amount);
+
+  // Textos importantes
+  out.legal_notices = normalizeStringArray(raw.legal_notices);
+  out.tariff_notes = normalizeStringArray(raw.tariff_notes);
+
+  // Metadados
+  out.extraction_confidence = toNumber(raw.extraction_confidence);
+  out.fields_not_found = normalizeStringArray(raw.fields_not_found);
+
+  return out;
+}
+
 function toNumber(value: unknown): number | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
@@ -743,6 +834,8 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let analysisIdForError: string | undefined;
+
   try {
     const requestData: BillAnalysisRequest = await req.json();
     const { 
@@ -754,6 +847,8 @@ serve(async (req) => {
       monitoredGeneration,
       quickAnalysis = false 
     } = requestData;
+
+    analysisIdForError = analysisId;
     
     console.log("🚀 Starting bill analysis v2.0:", { 
       analysisId, 
@@ -795,7 +890,22 @@ serve(async (req) => {
     // ============================================================
     // ETAPA 1: OCR DE ALTA PRECISÃO
     // ============================================================
-    const rawData = await performOCRExtraction(imageDataUrl, OPENAI_API_KEY);
+    const extractedRaw = await performOCRExtraction(imageDataUrl, OPENAI_API_KEY);
+    const rawData = normalizeRawBillData(extractedRaw);
+
+    const hasMinimumOCRSignals =
+      !!rawData.account_number ||
+      !!rawData.distributor ||
+      rawData.total_amount !== undefined ||
+      rawData.measured_consumption_kwh !== undefined ||
+      rawData.compensated_energy_kwh !== undefined ||
+      rawData.injected_energy_kwh !== undefined;
+
+    if (!hasMinimumOCRSignals) {
+      throw new Error(
+        "Não consegui ler a tabela de faturamento desta imagem. Envie uma foto/print que mostre claramente a seção 'DESCRIÇÃO DO FATURAMENTO' (com valores e impostos).",
+      );
+    }
 
     // Calculate derived metrics from raw data
     const realConsumption = (rawData.measured_consumption_kwh || rawData.compensated_energy_kwh || 0) + (rawData.compensated_energy_kwh || 0);
@@ -859,7 +969,7 @@ serve(async (req) => {
       .from("bill_raw_data")
       .insert({
         bill_analysis_id: analysisId,
-        raw_json: rawData,
+        raw_json: extractedRaw,
         ocr_confidence: rawData.extraction_confidence,
         extraction_model: "gpt-4o",
         extraction_version: "v2.0",
@@ -883,34 +993,37 @@ serve(async (req) => {
       distributor: rawData.distributor,
       consumer_class: rawData.consumer_class,
       tariff_modality: rawData.tariff_modality,
-      billing_days: rawData.billing_days,
-      meter_reading_current: rawData.meter_reading_current,
-      meter_reading_previous: rawData.meter_reading_previous,
+      billing_days: rawData.billing_days ?? null,
+      meter_reading_current: rawData.meter_reading_current ?? null,
+      meter_reading_previous: rawData.meter_reading_previous ?? null,
       
-      billed_consumption_kwh: rawData.measured_consumption_kwh,
-      injected_energy_kwh: rawData.injected_energy_kwh,
-      compensated_energy_kwh: rawData.compensated_energy_kwh,
-      previous_credits_kwh: rawData.previous_credits_kwh,
-      current_credits_kwh: rawData.current_credits_kwh,
+      billed_consumption_kwh: rawData.measured_consumption_kwh ?? null,
+      injected_energy_kwh: rawData.injected_energy_kwh ?? null,
+      compensated_energy_kwh: rawData.compensated_energy_kwh ?? null,
+      previous_credits_kwh: rawData.previous_credits_kwh ?? null,
+      current_credits_kwh: rawData.current_credits_kwh ?? null,
       
-      total_amount: rawData.total_amount,
-      energy_cost: rawData.energy_cost,
-      availability_cost: rawData.availability_cost,
-      public_lighting_cost: rawData.public_lighting_cost,
-      icms_cost: rawData.icms_cost,
-      pis_cost: rawData.pis_cost,
-      cofins_cost: rawData.cofins_cost,
+      total_amount: rawData.total_amount ?? null,
+      energy_cost: rawData.energy_cost ?? null,
+      availability_cost: rawData.availability_cost ?? null,
+      public_lighting_cost: rawData.public_lighting_cost ?? null,
+      icms_cost: rawData.icms_cost ?? null,
+      pis_cost: rawData.pis_cost ?? null,
+      cofins_cost: rawData.cofins_cost ?? null,
       pis_cofins_cost: (rawData.pis_cost || 0) + (rawData.cofins_cost || 0),
-      sectoral_charges: rawData.sectoral_charges,
-      fine_amount: rawData.fines_amount,
-      interest_amount: rawData.interest_amount,
+      sectoral_charges: rawData.sectoral_charges ?? null,
+      fine_amount: rawData.fines_amount ?? null,
+      interest_amount: rawData.interest_amount ?? null,
       tariff_flag: rawData.tariff_flag,
-      tariff_flag_cost: rawData.tariff_flag_value_kwh ? (rawData.tariff_flag_value_kwh * (rawData.measured_consumption_kwh || 0)) : null,
-      tariff_te_value: rawData.tariff_te_kwh,
-      tariff_tusd_value: rawData.tariff_tusd_kwh,
+      tariff_flag_cost:
+        rawData.tariff_flag_value_kwh !== undefined
+          ? (rawData.tariff_flag_value_kwh * (rawData.measured_consumption_kwh || 0))
+          : null,
+      tariff_te_value: rawData.tariff_te_kwh ?? null,
+      tariff_tusd_value: rawData.tariff_tusd_kwh ?? null,
       
-      demand_contracted_kw: rawData.demand_contracted_kw,
-      demand_measured_kw: rawData.demand_measured_kw,
+      demand_contracted_kw: rawData.demand_contracted_kw ?? null,
+      demand_measured_kw: rawData.demand_measured_kw ?? null,
       
       real_consumption_kwh: realConsumption,
       generation_efficiency: generationEfficiency,
@@ -955,8 +1068,7 @@ serve(async (req) => {
     console.error("❌ Error in analyze-bill function:", error);
     
     // Atualizar status para error no banco de dados se temos analysisId
-    const requestData = await req.clone().json().catch(() => ({}));
-    if (requestData.analysisId) {
+    if (analysisIdForError) {
       try {
         const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
         const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -968,7 +1080,7 @@ serve(async (req) => {
             status: "error",
             ai_analysis: `Erro na análise: ${error instanceof Error ? error.message : "Erro desconhecido"}` 
           })
-          .eq("id", requestData.analysisId);
+          .eq("id", analysisIdForError);
         
         console.log("📝 Updated analysis status to error");
       } catch (updateError) {
