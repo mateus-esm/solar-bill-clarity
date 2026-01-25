@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { Check, Loader2 } from "lucide-react";
 
-export type AnalysisStep = "idle" | "uploading" | "extracting" | "validating" | "analyzing" | "completed" | "error";
+export type AnalysisStep = "idle" | "uploading" | "extracting" | "calculating" | "completed" | "error";
 
 interface StepConfig {
   key: AnalysisStep;
@@ -11,9 +11,8 @@ interface StepConfig {
 const steps: StepConfig[] = [
   { key: "uploading", label: "Enviando" },
   { key: "extracting", label: "Lendo conta" },
-  { key: "validating", label: "Validando" },
-  { key: "analyzing", label: "Analisando IA" },
-  { key: "completed", label: "Concluído" },
+  { key: "calculating", label: "Calculando" },
+  { key: "completed", label: "Pronto!" },
 ];
 
 function getStepIndex(status: AnalysisStep): number {

@@ -5,79 +5,48 @@ import soloLogo from "@/assets/solo-logo.png";
 import { Button } from "@/components/ui/button";
 import { BillUpload } from "@/components/BillUpload";
 import { SolarInput } from "@/components/SolarInput";
-import { CostChart } from "@/components/CostChart";
-import { EducationalBlock } from "@/components/EducationalBlock";
-import { CTASection } from "@/components/CTASection";
 import { AnalysisStepper, type AnalysisStep } from "@/components/AnalysisStepper";
-import { BillScoreHeader } from "@/components/BillScoreHeader";
-import { TaxExplainer } from "@/components/TaxExplainer";
-import { AlertsList } from "@/components/AlertsList";
-import { RawDataViewer } from "@/components/RawDataViewer";
-import { RecommendationCards } from "@/components/RecommendationCards";
-import { SolarHealthGauge } from "@/components/SolarHealthGauge";
+import {
+  BillSummaryCard,
+  CostCompositionCard,
+  SolarEnergyCard,
+  SystemStatusCard,
+  ActionCard,
+} from "@/components/clarifier";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { pdfToImages, isPdfFile } from "@/lib/pdfToImages";
 
-// Interface expandida para dados completos da análise v2.0
-interface AnalysisResult {
-  // Métricas principais
-  consumoReal: number;
-  consumoFaturado: number;
-  valorTotal: number;
-  energiaGerada: number;
-  energiaInjetada: number;
-  creditosUsados: number;
-  creditosAcumulados: number;
-  economia: number;
-  
-  // Detalhamento de custos
-  detalhamento: Array<{ name: string; value: number; color: string }>;
-  
-  // Informações da conta
-  distribuidora: string;
-  bandeira: string;
-  
-  // Dados brutos do OCR
-  rawData: Record<string, unknown>;
-  
-  // Análise especialista
-  billScore: {
-    value: number;
-    label: string;
-    factors: string[];
-  };
-  
-  alerts: Array<{
-    type: "error" | "warning" | "info" | "success";
-    icon: string;
-    title: string;
-    description: string;
-    action?: string;
-  }>;
-  
-  taxes: Array<{
-    id: string;
-    name: string;
-    value: number;
-    rate?: number;
-    whatIs: string;
-    yourValue: string;
-    tip?: string;
-    status?: "normal" | "high" | "low";
-  }>;
-  
-  recommendations: Array<{
-    priority: "alta" | "media" | "baixa";
-    title: string;
-    description: string;
-    estimated_savings?: string;
-  }>;
-  
-  // Métricas solares
-  solarEfficiency: number;
-  selfConsumptionRate: number;
-  efficiencyAssessment: string;
+// Interface simplificada para o Bill Clarifier v1.0
+interface ClarifierResult {
+  // Card 1: Resumo
+  totalPaid: number;
+  minimumPossible: number;
+
+  // Card 2: Composição
+  availabilityCost: number;
+  publicLightingCost: number;
+  uncompensatedCost: number;
+
+  // Card 3: Solar
+  generated: number;
+  injected: number;
+  compensated: number;
+  creditsBalance: number;
+
+  // Card 4: Status
+  expectedGeneration: number;
+  actualGeneration: number;
+  generationGap: number;
+  systemStatus: "adequate" | "slightly_below" | "below_needed";
+
+  // Card 5: Ação
+  extraGenerationNeeded: number;
+  expansionKwp?: number;
+  expansionModules?: number;
+
+  // Extras
+  distributor: string;
 }
 
 export default function Index() {
@@ -86,7 +55,7 @@ export default function Index() {
   const [step, setStep] = useState<AnalysisStep>("idle");
   const [stepError, setStepError] = useState<string | undefined>();
   const [showResults, setShowResults] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<ClarifierResult | null>(null);
   const { toast } = useToast();
 
   const toNumber = (value: unknown, fallback = 0): number => {
@@ -134,9 +103,6 @@ export default function Index() {
       setStep("extracting");
       const monitoredGeneration = parseFloat(solarGeneration);
 
-      // 3) Validating
-      setStep("validating");
-
       const { data, error } = await supabase.functions.invoke("analyze-bill", {
         body: {
           fileBase64: imageBase64,
@@ -149,244 +115,77 @@ export default function Index() {
       if (error) throw error;
       if (!data.success) throw new Error(data.error || "Erro na análise");
 
-      // 4) Analyzing – build result
-      setStep("analyzing");
+      // 3) Calculating – build clarifier result
+      setStep("calculating");
       const result = data.data;
       const rawData = data.rawData || result;
 
-      // Build cost breakdown - use gross values when available for showing what was saved
-      const detalhamento: Array<{ name: string; value: number; color: string }> = [];
-      const energyCost = toNumber(result.energy_cost, 0);
-      const energyCostGross = toNumber(rawData.energy_cost_gross || rawData.subtotal_gross, 0);
-      const icmsCost = toNumber(result.icms_cost, 0);
-      const icmsCostGross = toNumber(rawData.icms_cost_gross, 0);
-      const pisCost = toNumber(result.pis_cost, 0);
-      const pisCostGross = toNumber(rawData.pis_cost_gross, 0);
-      const cofinsCost = toNumber(result.cofins_cost, 0);
-      const cofinsCostGross = toNumber(rawData.cofins_cost_gross, 0);
-      const pisCofinsCost = toNumber(result.pis_cofins_cost, 0) || (pisCost + cofinsCost);
-      const pisCofinsCostGross = pisCostGross + cofinsCostGross;
-      const publicLightingCost = toNumber(result.public_lighting_cost, 0);
-      const availabilityCost = toNumber(result.availability_cost, 0);
-      const sectoralCharges = toNumber(result.sectoral_charges, 0);
-      const creditDiscount = Math.abs(toNumber(rawData.credit_discount, 0));
+      // === CÁLCULOS DO CLARIFIER ===
 
-      // Use gross values for chart if final costs are zero (compensated by solar)
-      const chartEnergyCost = energyCost > 0 ? energyCost : energyCostGross;
-      const chartIcmsCost = icmsCost > 0 ? icmsCost : icmsCostGross;
-      const chartPisCofinsCost = pisCofinsCost > 0 ? pisCofinsCost : pisCofinsCostGross;
+      // Taxas fixas (Valor Mínimo Possível)
+      const availabilityCost = toNumber(result.availability_cost || rawData.availability_cost, 0);
+      const publicLightingCost = toNumber(result.public_lighting_cost || rawData.public_lighting_cost, 0);
+      const minimumPossible = availabilityCost + publicLightingCost;
 
-      if (chartEnergyCost > 0) detalhamento.push({ name: "Energia", value: chartEnergyCost, color: "hsl(24, 95%, 53%)" });
-      if (chartIcmsCost > 0) detalhamento.push({ name: "ICMS", value: chartIcmsCost, color: "hsl(45, 100%, 51%)" });
-      if (chartPisCofinsCost > 0) detalhamento.push({ name: "PIS/COFINS", value: chartPisCofinsCost, color: "hsl(210, 40%, 50%)" });
-      if (publicLightingCost > 0) detalhamento.push({ name: "Ilum. Pública", value: publicLightingCost, color: "hsl(280, 60%, 50%)" });
-      if (availabilityCost > 0) detalhamento.push({ name: "Disponibilidade", value: availabilityCost, color: "hsl(160, 60%, 45%)" });
-      if (sectoralCharges > 0) detalhamento.push({ name: "Encargos", value: sectoralCharges, color: "hsl(0, 60%, 50%)" });
+      // Valor total pago
+      const totalPaid = toNumber(result.total_amount || rawData.total_amount, 0);
 
-      // Build taxes for TaxExplainer - show gross values with compensation info
-      const taxes: AnalysisResult["taxes"] = [];
-      const totalAmount = toNumber(result.total_amount, 0);
-      const wasFullyCompensated = totalAmount === 0 && (icmsCostGross > 0 || energyCostGross > 0);
-      
-      // ICMS - show gross if compensated
-      const displayIcms = icmsCost > 0 ? icmsCost : icmsCostGross;
-      if (displayIcms > 0) {
-        const isCompensated = icmsCost === 0 && icmsCostGross > 0;
-        taxes.push({
-          id: "icms",
-          name: "ICMS",
-          value: displayIcms,
-          rate: toNumber(rawData.icms_rate),
-          whatIs: "O ICMS (Imposto sobre Circulação de Mercadorias e Serviços) é um imposto estadual que incide sobre a energia elétrica. Cada estado tem sua própria alíquota.",
-          yourValue: isCompensated 
-            ? `Valor bruto de R$ ${displayIcms.toFixed(2)} foi compensado pelos créditos solares. Você não pagou nada!`
-            : `Você pagou R$ ${displayIcms.toFixed(2)}, que representa ${totalAmount > 0 ? ((displayIcms / totalAmount) * 100).toFixed(1) : 0}% da sua conta.`,
-          tip: isCompensated 
-            ? "✅ Economia com energia solar: seu ICMS foi totalmente compensado este mês!"
-            : "Consumidores de baixa renda podem ter isenção de ICMS. Verifique com sua distribuidora.",
-          status: isCompensated ? "low" : (toNumber(rawData.icms_rate) > 25 ? "high" : "normal"),
-        });
+      // Consumo não compensado (diferença do mínimo)
+      const uncompensatedCost = Math.max(0, totalPaid - minimumPossible);
+
+      // Dados solares
+      const generated = monitoredGeneration;
+      const injected = toNumber(result.injected_energy_kwh || rawData.injected_energy_kwh, 0);
+      const compensated = toNumber(result.compensated_energy_kwh || rawData.compensated_energy_kwh, 0);
+      const creditsBalance = toNumber(result.current_credits_kwh || rawData.current_credits_kwh, 0);
+
+      // Geração esperada: usa valor do sistema ou estima 150 kWh/kWp
+      // Se não temos potência instalada, estimamos baseado no que foi monitorado
+      const expectedGeneration = toNumber(result.expected_generation_kwh, 0) || generated;
+
+      // Status do sistema
+      const billedConsumption = toNumber(result.billed_consumption_kwh || rawData.measured_consumption_kwh, 0);
+      const geracaoNecessaria = Math.max(0, billedConsumption - compensated);
+
+      let systemStatus: ClarifierResult["systemStatus"] = "adequate";
+      if (generated >= geracaoNecessaria) {
+        systemStatus = "adequate";
+      } else if (generated >= geracaoNecessaria * 0.8) {
+        systemStatus = "slightly_below";
+      } else {
+        systemStatus = "below_needed";
       }
 
-      // PIS/COFINS - show gross if compensated
-      const displayPisCofins = pisCofinsCost > 0 ? pisCofinsCost : pisCofinsCostGross;
-      if (displayPisCofins > 0) {
-        const isCompensated = pisCofinsCost === 0 && pisCofinsCostGross > 0;
-        taxes.push({
-          id: "pis_cofins",
-          name: "PIS/COFINS",
-          value: displayPisCofins,
-          whatIs: "PIS (Programa de Integração Social) e COFINS (Contribuição para o Financiamento da Seguridade Social) são tributos federais que incidem sobre a receita da distribuidora.",
-          yourValue: isCompensated
-            ? `Valor bruto de R$ ${displayPisCofins.toFixed(2)} foi compensado pelos créditos solares. Você não pagou nada!`
-            : `Você pagou R$ ${displayPisCofins.toFixed(2)} de PIS/COFINS.`,
-          tip: isCompensated ? "✅ Economia com energia solar!" : undefined,
-          status: isCompensated ? "low" : "normal",
-        });
-      }
-
-      if (publicLightingCost > 0) {
-        taxes.push({
-          id: "cip",
-          name: "Iluminação Pública (CIP)",
-          value: publicLightingCost,
-          whatIs: "A Contribuição de Iluminação Pública (CIP ou COSIP) é uma taxa municipal destinada ao custeio da iluminação das vias públicas da sua cidade.",
-          yourValue: `Você paga R$ ${publicLightingCost.toFixed(2)} fixos por mês para a prefeitura.`,
-          status: "normal",
-        });
-      }
-
-      if (availabilityCost > 0) {
-        taxes.push({
-          id: "disponibilidade",
-          name: "Custo de Disponibilidade",
-          value: availabilityCost,
-          whatIs: "O custo de disponibilidade é a taxa mínima cobrada pela distribuidora para manter sua conexão à rede elétrica, mesmo que você não consuma nenhuma energia.",
-          yourValue: `Sua taxa mínima é R$ ${availabilityCost.toFixed(2)}. Com energia solar, esse é frequentemente o único custo que resta.`,
-          tip: "Esta taxa é obrigatória e não pode ser eliminada, mas com solar você pode chegar perto de pagar apenas isso!",
-          status: "normal",
-        });
-      }
-
-      // If no taxes but we have gross values, show compensation summary
-      if (taxes.length === 0 && wasFullyCompensated) {
-        const totalGross = energyCostGross + icmsCostGross + pisCofinsCostGross;
-        if (totalGross > 0) {
-          taxes.push({
-            id: "economia_solar",
-            name: "Economia com Energia Solar",
-            value: totalGross,
-            whatIs: "Este é o valor total que você teria pago sem energia solar. Graças aos seus créditos solares, tudo foi compensado!",
-            yourValue: `Você economizou R$ ${totalGross.toFixed(2)} este mês graças à energia solar.`,
-            tip: "🌞 Parabéns! Sua energia solar está trabalhando a todo vapor!",
-            status: "low",
-          });
-        }
-      }
-
-      // Build alerts from string array or structured array
-      let alerts: AnalysisResult["alerts"] = [];
-      if (Array.isArray(result.alerts)) {
-        alerts = result.alerts.map((alert: string | { type: string; title: string; description: string; icon?: string }) => {
-          if (typeof alert === "string") {
-            // Determine type based on content
-            let type: "error" | "warning" | "info" | "success" = "info";
-            let icon = "ℹ️";
-            if (alert.toLowerCase().includes("multa") || alert.toLowerCase().includes("erro")) {
-              type = "error";
-              icon = "🚨";
-            } else if (alert.toLowerCase().includes("abaixo") || alert.toLowerCase().includes("atenção")) {
-              type = "warning";
-              icon = "⚠️";
-            } else if (alert.toLowerCase().includes("economia") || alert.toLowerCase().includes("excelente")) {
-              type = "success";
-              icon = "✅";
-            }
-            return { type, icon, title: alert.split(":")[0] || "Alerta", description: alert };
-          }
-          return alert as AnalysisResult["alerts"][0];
-        });
-      }
-
-      // Build recommendations
-      const recommendations: AnalysisResult["recommendations"] = [];
-      const efficiency = toNumber(result.generation_efficiency, 0);
-      
-      if (efficiency < 80 && efficiency > 0) {
-        recommendations.push({
-          priority: "alta",
-          title: "Verificar Painéis Solares",
-          description: "Sua geração está abaixo do esperado. Considere agendar uma limpeza ou inspeção dos módulos.",
-          estimated_savings: "Pode recuperar até 20% de geração",
-        });
-      }
-
-      const finesAmount = toNumber(result.fine_amount || result.fines_amount, 0);
-      if (finesAmount > 0) {
-        recommendations.push({
-          priority: "alta",
-          title: "Evitar Multas Futuras",
-          description: "Você pagou multa por atraso. Configure débito automático para evitar cobranças extras.",
-          estimated_savings: `Economia de R$ ${finesAmount.toFixed(2)}/mês`,
-        });
-      }
-
-      const currentCredits = toNumber(result.current_credits_kwh, 0);
-      if (currentCredits > 500) {
-        recommendations.push({
-          priority: "media",
-          title: "Otimizar Uso de Créditos",
-          description: "Você tem muitos créditos acumulados. Considere aumentar o consumo diurno ou verificar a possibilidade de transferir créditos.",
-        });
-      }
-
-      // Calculate solar metrics
-      const injectedEnergy = toNumber(result.injected_energy_kwh, 0);
-      const selfConsumptionRate = monitoredGeneration > 0 
-        ? ((monitoredGeneration - injectedEnergy) / monitoredGeneration) * 100 
-        : 0;
-
-      // Determine efficiency assessment
-      let efficiencyAssessment = "Bom";
-      if (efficiency >= 95) efficiencyAssessment = "Excelente";
-      else if (efficiency >= 85) efficiencyAssessment = "Muito Bom";
-      else if (efficiency >= 75) efficiencyAssessment = "Bom";
-      else if (efficiency >= 60) efficiencyAssessment = "Regular";
-      else if (efficiency > 0) efficiencyAssessment = "Abaixo do esperado";
-
-      // Build bill score (simplified calculation)
-      let scoreValue = 70;
-      const scoreFactors: string[] = [];
-      
-      if (efficiency >= 90) { scoreValue += 15; scoreFactors.push("Alta eficiência solar"); }
-      else if (efficiency < 70 && efficiency > 0) { scoreValue -= 15; scoreFactors.push("Eficiência abaixo do esperado"); }
-      
-      if (finesAmount === 0) { scoreValue += 10; scoreFactors.push("Sem multas"); }
-      else { scoreValue -= 20; scoreFactors.push("Multa detectada"); }
-      
-      if (currentCredits > 0) { scoreValue += 5; scoreFactors.push("Créditos acumulados"); }
-
-      scoreValue = Math.max(0, Math.min(100, scoreValue));
-      
-      let scoreLabel = "Bom";
-      if (scoreValue >= 90) scoreLabel = "Excelente";
-      else if (scoreValue >= 75) scoreLabel = "Muito Bom";
-      else if (scoreValue >= 60) scoreLabel = "Bom";
-      else if (scoreValue >= 40) scoreLabel = "Regular";
-      else scoreLabel = "Atenção";
-
-      // Calculate real savings - if total is 0, use gross values
-      const calculatedSavings = wasFullyCompensated 
-        ? (energyCostGross + icmsCostGross + pisCofinsCostGross + creditDiscount)
-        : toNumber(result.estimated_savings, 0);
+      // Expansão necessária
+      const extraGenerationNeeded = Math.max(0, geracaoNecessaria - generated);
+      const expansionKwp = extraGenerationNeeded > 0 ? extraGenerationNeeded / 150 : undefined;
+      const expansionModules = expansionKwp ? Math.ceil(expansionKwp / 0.4) : undefined; // 400W por módulo
 
       setAnalysisResult({
-        consumoReal: toNumber(result.real_consumption_kwh || rawData.measured_consumption_kwh, 0),
-        consumoFaturado: toNumber(result.billed_consumption_kwh || rawData.measured_consumption_kwh, 0),
-        valorTotal: totalAmount,
-        energiaGerada: monitoredGeneration,
-        energiaInjetada: injectedEnergy,
-        creditosUsados: toNumber(result.compensated_energy_kwh, 0),
-        creditosAcumulados: currentCredits,
-        economia: calculatedSavings,
-        detalhamento,
-        distribuidora: result.distributor || "Não identificada",
-        bandeira: result.tariff_flag || "Não identificada",
-        rawData,
-        billScore: { value: scoreValue, label: scoreLabel, factors: scoreFactors },
-        alerts,
-        taxes,
-        recommendations,
-        solarEfficiency: efficiency,
-        selfConsumptionRate,
-        efficiencyAssessment,
+        totalPaid,
+        minimumPossible,
+        availabilityCost,
+        publicLightingCost,
+        uncompensatedCost,
+        generated,
+        injected,
+        compensated,
+        creditsBalance,
+        expectedGeneration,
+        actualGeneration: generated,
+        generationGap: Math.max(0, expectedGeneration - generated),
+        systemStatus,
+        extraGenerationNeeded,
+        expansionKwp,
+        expansionModules,
+        distributor: result.distributor || rawData.distributor || "Não identificada",
       });
 
-      // 5) Completed
+      // 4) Completed
       setStep("completed");
       setShowResults(true);
 
-      toast({ title: "Análise concluída!", description: "Sua conta foi analisada com sucesso." });
+      toast({ title: "Análise concluída!", description: "Veja o resultado da sua conta." });
     } catch (err) {
       console.error("Analysis error:", err);
       const msg = err instanceof Error ? err.message : "Não foi possível analisar a conta";
@@ -403,6 +202,16 @@ export default function Index() {
     setAnalysisResult(null);
     setStep("idle");
     setStepError(undefined);
+  };
+
+  const handleExpansionClick = () => {
+    // Open WhatsApp or contact form
+    const message = encodeURIComponent(
+      `Olá! Gostaria de avaliar uma expansão do meu sistema solar. ` +
+        `Minha geração atual é ${analysisResult?.generated || 0} kWh e preciso de mais ` +
+        `${analysisResult?.extraGenerationNeeded || 0} kWh para pagar apenas o valor mínimo.`
+    );
+    window.open(`https://wa.me/5500000000000?text=${message}`, "_blank");
   };
 
   const isProcessing = step !== "idle" && step !== "completed" && step !== "error";
@@ -434,13 +243,13 @@ export default function Index() {
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
                 <div className="mx-auto mb-4 inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-2">
                   <Zap className="h-4 w-4 text-primary" />
-                  <span className="text-sm font-medium text-primary">Análise Inteligente v2.0</span>
+                  <span className="text-sm font-medium text-primary">Bill Clarifier v1.0</span>
                 </div>
                 <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-                  Raio-X da sua <span className="gradient-text">Conta de Energia</span>
+                  Entenda sua <span className="gradient-text">Conta de Energia</span>
                 </h1>
                 <p className="mt-3 text-muted-foreground">
-                  OCR de alta precisão + IA especialista para entender cada centavo
+                  Descubra por que você está pagando esse valor e como pagar menos
                 </p>
               </motion.div>
 
@@ -486,7 +295,7 @@ export default function Index() {
                   <span className="h-2 w-2 rounded-full bg-emerald-500" /> Análise segura
                 </span>
                 <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-primary" /> OCR de alta precisão
+                  <span className="h-2 w-2 rounded-full bg-primary" /> Respostas claras
                 </span>
               </motion.div>
             </motion.div>
@@ -496,14 +305,13 @@ export default function Index() {
                 key="results"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mx-auto max-w-3xl space-y-6"
+                className="mx-auto max-w-2xl space-y-4"
               >
                 {/* Header with Reset Button */}
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mb-6">
                   <div>
-                    <p className="text-sm text-muted-foreground">
-                      {analysisResult.distribuidora} | Bandeira {analysisResult.bandeira}
-                    </p>
+                    <h2 className="text-xl font-bold text-foreground">Resultado da Análise</h2>
+                    <p className="text-sm text-muted-foreground">{analysisResult.distributor}</p>
                   </div>
                   <Button variant="outline" size="sm" onClick={handleReset}>
                     <RotateCcw className="h-4 w-4 mr-2" />
@@ -511,60 +319,54 @@ export default function Index() {
                   </Button>
                 </div>
 
-                {/* 1. Bill Score Header */}
-                <BillScoreHeader
-                  score={analysisResult.billScore.value}
-                  label={analysisResult.billScore.label}
-                  factors={analysisResult.billScore.factors}
-                  totalAmount={analysisResult.valorTotal}
-                  savings={analysisResult.economia}
+                {/* Motivational quote */}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-center px-4 py-3 bg-muted/30 rounded-lg border border-border"
+                >
+                  <p className="text-sm text-muted-foreground italic">
+                    "Energia solar não zera a conta — ela reduz o consumo.
+                    <br />
+                    Aqui está exatamente como isso aconteceu no seu caso."
+                  </p>
+                </motion.div>
+
+                {/* Card 1: Resumo */}
+                <BillSummaryCard
+                  totalPaid={analysisResult.totalPaid}
+                  minimumPossible={analysisResult.minimumPossible}
                 />
 
-                {/* 2. Alerts */}
-                {analysisResult.alerts.length > 0 && (
-                  <AlertsList alerts={analysisResult.alerts} />
-                )}
+                {/* Card 2: Composição */}
+                <CostCompositionCard
+                  availabilityCost={analysisResult.availabilityCost}
+                  publicLightingCost={analysisResult.publicLightingCost}
+                  uncompensatedCost={analysisResult.uncompensatedCost}
+                />
 
-                {/* 3. Solar Health Gauge */}
-                {analysisResult.energiaGerada > 0 && (
-                  <SolarHealthGauge
-                    efficiency={analysisResult.solarEfficiency}
-                    monitoredGeneration={analysisResult.energiaGerada}
-                    expectedGeneration={analysisResult.energiaGerada / (analysisResult.solarEfficiency / 100 || 1)}
-                    injectedEnergy={analysisResult.energiaInjetada}
-                    selfConsumptionRate={analysisResult.selfConsumptionRate}
-                    efficiencyAssessment={analysisResult.efficiencyAssessment}
-                  />
-                )}
+                {/* Card 3: Solar */}
+                <SolarEnergyCard
+                  generated={analysisResult.generated}
+                  injected={analysisResult.injected}
+                  compensated={analysisResult.compensated}
+                  creditsBalance={analysisResult.creditsBalance}
+                />
 
-                {/* 4. Cost Distribution Chart */}
-                {analysisResult.detalhamento.length > 0 && (
-                  <div>
-                    <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-                      💰 Para Onde Foi Seu Dinheiro
-                    </h3>
-                    <CostChart data={analysisResult.detalhamento} />
-                  </div>
-                )}
+                {/* Card 4: Status do Sistema */}
+                <SystemStatusCard
+                  expectedGeneration={analysisResult.expectedGeneration}
+                  actualGeneration={analysisResult.actualGeneration}
+                  status={analysisResult.systemStatus}
+                />
 
-                {/* 5. Tax Explainer */}
-                {analysisResult.taxes.length > 0 && (
-                  <TaxExplainer taxes={analysisResult.taxes} />
-                )}
-
-                {/* 6. Recommendations */}
-                {analysisResult.recommendations.length > 0 && (
-                  <RecommendationCards recommendations={analysisResult.recommendations} />
-                )}
-
-                {/* 7. Educational Block */}
-                <EducationalBlock economia={analysisResult.economia} />
-
-                {/* 8. Raw Data Viewer */}
-                <RawDataViewer data={analysisResult.rawData} />
-
-                {/* 9. CTA Section */}
-                <CTASection />
+                {/* Card 5: Ação */}
+                <ActionCard
+                  extraGenerationNeeded={analysisResult.extraGenerationNeeded}
+                  expansionKwp={analysisResult.expansionKwp}
+                  expansionModules={analysisResult.expansionModules}
+                  onExpansionClick={handleExpansionClick}
+                />
               </motion.div>
             )
           )}
