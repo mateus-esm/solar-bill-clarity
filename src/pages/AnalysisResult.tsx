@@ -10,7 +10,8 @@ import {
   RotateCcw,
   ExternalLink,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Trash2
 } from "lucide-react";
 import soloLogo from "@/assets/solo-logo.png";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,17 @@ import {
   ActionCard,
 } from "@/components/clarifier";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface BillAnalysis {
   id: string;
@@ -91,6 +103,7 @@ export default function AnalysisResult() {
   const [signedBillUrl, setSignedBillUrl] = useState<string | null>(null);
   const [showTechnicalData, setShowTechnicalData] = useState(false);
   const [processingStartTime, setProcessingStartTime] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -272,6 +285,41 @@ export default function AnalysisResult() {
     setRefreshing(true);
     await fetchAnalysis();
     setRefreshing(false);
+  };
+
+  const handleDelete = async () => {
+    if (!analysisId) return;
+    
+    setDeleting(true);
+    try {
+      // First delete raw data (child table)
+      await db("bill_raw_data")
+        .delete()
+        .eq("bill_analysis_id", analysisId);
+
+      // Then delete the analysis
+      const { error } = await db("bill_analyses")
+        .delete()
+        .eq("id", analysisId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Análise apagada",
+        description: "A análise foi removida com sucesso.",
+      });
+
+      navigate(`/property/${id}`);
+    } catch (error: any) {
+      console.error("Error deleting analysis:", error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível apagar a análise",
+        variant: "destructive",
+      });
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleExpansionClick = () => {
@@ -526,7 +574,7 @@ export default function AnalysisResult() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.35 }}
-              className="flex gap-4 pt-4"
+              className="flex flex-wrap gap-4 pt-4"
             >
               <Button
                 variant="outline"
@@ -545,6 +593,31 @@ export default function AnalysisResult() {
                   Ver fatura
                 </Button>
               )}
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="icon" disabled={deleting}>
+                    {deleting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Apagar análise?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Esta ação não pode ser desfeita. A análise de {monthNames[analysis.reference_month - 1]} {analysis.reference_year} será permanentemente removida.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                      Apagar
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </motion.div>
           </div>
         )}
