@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Check, Loader2 } from "lucide-react";
+import { Check, Loader2, AlertCircle } from "lucide-react";
 
 export type AnalysisStep = "idle" | "uploading" | "extracting" | "calculating" | "completed" | "error";
 
@@ -40,8 +40,9 @@ export function AnalysisStepper({ currentStep, errorMessage }: AnalysisStepperPr
       <div className="flex items-center justify-between">
         {steps.map((step, idx) => {
           const isActive = idx === currentIndex;
-          const isDone = idx < currentIndex;
+          const isDone = idx < currentIndex || currentStep === "completed";
           const isFuture = idx > currentIndex;
+          const isErrorStep = isError && idx === currentIndex;
 
           return (
             <div key={step.key} className="flex flex-1 items-center">
@@ -49,14 +50,18 @@ export function AnalysisStepper({ currentStep, errorMessage }: AnalysisStepperPr
               <div className="flex flex-col items-center gap-1">
                 <div
                   className={`flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors ${
-                    isDone
+                    isErrorStep
+                      ? "border-destructive bg-destructive/10 text-destructive"
+                      : isDone
                       ? "border-primary bg-primary text-primary-foreground"
                       : isActive
                       ? "border-primary bg-primary/10 text-primary"
                       : "border-muted bg-muted/30 text-muted-foreground"
                   }`}
                 >
-                  {isDone ? (
+                  {isErrorStep ? (
+                    <AlertCircle className="h-4 w-4" />
+                  ) : isDone ? (
                     <Check className="h-4 w-4" />
                   ) : isActive ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -66,10 +71,16 @@ export function AnalysisStepper({ currentStep, errorMessage }: AnalysisStepperPr
                 </div>
                 <span
                   className={`text-xs font-medium ${
-                    isActive ? "text-foreground" : isFuture ? "text-muted-foreground" : "text-primary"
+                    isErrorStep 
+                      ? "text-destructive" 
+                      : isActive 
+                      ? "text-foreground" 
+                      : isFuture 
+                      ? "text-muted-foreground" 
+                      : "text-primary"
                   }`}
                 >
-                  {step.label}
+                  {isErrorStep ? "Erro" : step.label}
                 </span>
               </div>
 
@@ -87,13 +98,15 @@ export function AnalysisStepper({ currentStep, errorMessage }: AnalysisStepperPr
       </div>
 
       {isError && errorMessage && (
-        <motion.p
+        <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="text-center text-sm text-destructive"
+          className="p-3 rounded-lg bg-destructive/10 border border-destructive/20"
         >
-          {errorMessage}
-        </motion.p>
+          <p className="text-sm text-destructive text-center">
+            {errorMessage}
+          </p>
+        </motion.div>
       )}
     </motion.div>
   );

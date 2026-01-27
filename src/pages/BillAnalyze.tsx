@@ -148,6 +148,8 @@ export default function BillAnalyze() {
     setStep("uploading");
     setStepError(undefined);
 
+    let analysisId: string | null = null;
+
     try {
       // Upload file to storage
       const fileExt = file.name.split(".").pop();
@@ -159,7 +161,7 @@ export default function BillAnalyze() {
 
       if (uploadError) throw uploadError;
 
-      // Get public URL (we'll use signed URLs for display)
+      // Get public URL
       const { data: urlData } = storage
         .from("bills")
         .getPublicUrl(fileName);
@@ -184,34 +186,80 @@ export default function BillAnalyze() {
       if (analysisError) throw analysisError;
       if (!analysis) throw new Error("Failed to create analysis");
 
-      // Call edge function for OCR analysis (don't wait for completion)
-      functions.invoke(
-        "analyze-bill",
-        {
-          body: {
-            analysisId: analysis.id,
-            fileUrl: urlData.publicUrl,
-            expectedGeneration,
-            monitoredGeneration: parseFloat(monitoredGeneration),
-          },
-        }
-      ).then(({ error }) => {
-        if (error) {
-          console.error("OCR Error:", error);
-        }
-      });
+      analysisId = analysis.id;
 
-      toast({
-        title: "Análise iniciada!",
-        description: "Sua conta está sendo processada pela IA",
-      });
+      // Call edge function and WAIT for result (with timeout)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 min timeout
 
-      // Navigate to results page (will show processing state with stepper)
-      navigate(`/property/${id}/analysis/${analysis.id}`);
+      try {
+        const { data: result, error: fnError } = await functions.invoke(
+          "analyze-bill",
+          {
+            body: {
+              analysisId: analysis.id,
+              fileUrl: urlData.publicUrl,
+              expectedGeneration,
+              monitoredGeneration: parseFloat(monitoredGeneration),
+            },
+          }
+        );
+
+        clearTimeout(timeoutId);
+
+        if (fnError) {
+          console.error("Edge function error:", fnError);
+          throw new Error(fnError.message || "Erro ao processar a conta");
+        }
+
+        // Check if the function returned an error in the payload
+        if (result && result.success === false) {
+          throw new Error(result.error || "Erro ao processar a conta");
+        }
+
+        setStep("completed");
+
+        toast({
+          title: "Análise concluída!",
+          description: "Sua conta foi processada com sucesso",
+        });
+
+        // Navigate to results page
+        navigate(`/property/${id}/analysis/${analysis.id}`);
+
+      } catch (invokeError: any) {
+        clearTimeout(timeoutId);
+        
+        // If it's an abort, the function timed out
+        if (invokeError.name === "AbortError") {
+          console.log("Function call timed out, redirecting anyway...");
+          toast({
+            title: "Processamento em andamento",
+            description: "A análise está demorando. Você será redirecionado para acompanhar.",
+          });
+          navigate(`/property/${id}/analysis/${analysis.id}`);
+          return;
+        }
+        
+        throw invokeError;
+      }
+
     } catch (error: any) {
       console.error("Error creating analysis:", error);
       setStep("error");
       setStepError(error.message || "Não foi possível iniciar a análise");
+      
+      // If we created the analysis, update its status to error
+      if (analysisId) {
+        try {
+          await db("bill_analyses")
+            .update({ status: "error", ai_analysis: error.message })
+            .eq("id", analysisId);
+        } catch (updateErr) {
+          console.error("Failed to update analysis status:", updateErr);
+        }
+      }
+
       toast({
         title: "Erro",
         description: error.message || "Não foi possível iniciar a análise",
