@@ -365,10 +365,15 @@ function getMimeTypeFromBase64OrUrl(fileType?: string, url?: string): string {
 }
 
 // ============================================================
-// ETAPA 1: OCR DE ALTA PRECISÃO
+// ETAPA 1: OCR DE ALTA PRECISÃO COM FALLBACK
 // ============================================================
-async function performOCRExtraction(imageDataUrl: string, openaiApiKey: string): Promise<RawBillData> {
-  const ocrPrompt = `Você é um OCR especializado em contas de energia elétrica brasileiras. 
+
+interface OCRResult {
+  data: RawBillData;
+  providerUsed: "gemini" | "openai";
+}
+
+const OCR_PROMPT = `Você é um OCR especializado em contas de energia elétrica brasileiras. 
 Sua única tarefa é EXTRAIR dados da imagem com máxima precisão. NÃO faça análises ou recomendações.
 
 ATENÇÃO ESPECIAL: Procure pela tabela "DESCRIÇÃO DO FATURAMENTO" ou similar que contém os itens cobrados.
@@ -477,94 +482,213 @@ REGRAS CRÍTICAS:
 9. IMPORTANTE: Capture valores BRUTOS (gross) da tabela de descrição do faturamento mesmo se o total for zero
 10. Valores negativos na tabela (créditos) devem ser somados no credit_discount`;
 
-  console.log("🔍 ETAPA 1: Iniciando OCR de alta precisão...");
-
-  // Helper para fazer a chamada OCR com retry
-  const callOCR = async (attempt: number): Promise<RawBillData> => {
-    console.log(`📤 OCR attempt ${attempt}...`);
+// Helper para parsear resposta OCR
+function parseOCRResponse(content: string): RawBillData {
+  const cleanedContent = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  
+  try {
+    return JSON.parse(cleanedContent);
+  } catch (parseError) {
+    console.error("Failed to parse OCR response:", parseError);
+    console.log("Raw content (first 1000 chars):", cleanedContent.substring(0, 1000));
+    console.log("Raw content (last 500 chars):", cleanedContent.substring(cleanedContent.length - 500));
     
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${openaiApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        messages: [
-          { role: "system", content: ocrPrompt },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Extraia TODOS os dados desta conta de energia:" },
-              { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
-            ],
-          },
-        ],
-        max_tokens: 8000, // Aumentado de 4000 para evitar truncamento
-        temperature: 0, // Determinístico para máxima consistência
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("OpenAI OCR error:", errorText);
-      throw new Error(`OpenAI OCR error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices[0]?.message?.content || "{}";
-    const finishReason = data.choices[0]?.finish_reason;
-    
-    console.log("📄 OCR raw response length:", content.length, "finish_reason:", finishReason);
-
-    // Verificar se a resposta foi truncada
-    if (finishReason === "length") {
-      console.warn("⚠️ Response was truncated (finish_reason=length)");
-      if (attempt < 2) {
-        throw new Error("Response truncated, will retry");
+    // Tentar extrair JSON parcial
+    const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch {
+        console.error("Partial JSON extraction also failed");
       }
     }
-
-    // Parse e normalize
-    const cleanedContent = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     
+    throw new Error("Failed to parse OCR response");
+  }
+}
+
+// Chamada OCR com Lovable AI Gateway (Gemini) - Provider primário
+async function callOCRWithGemini(imageDataUrl: string, lovableApiKey: string): Promise<RawBillData> {
+  console.log("🚀 Calling Lovable AI Gateway (Gemini) for OCR...");
+  
+  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${lovableApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-3-flash-preview",
+      messages: [
+        { role: "system", content: OCR_PROMPT },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Extraia TODOS os dados desta conta de energia:" },
+            { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
+          ],
+        },
+      ],
+      max_tokens: 8000,
+      temperature: 0,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Gemini OCR error:", response.status, errorText);
+    
+    // Specific error handling for rate limits and quota
+    if (response.status === 429) {
+      throw new Error("GEMINI_RATE_LIMIT: Rate limit exceeded");
+    }
+    if (response.status === 402) {
+      throw new Error("GEMINI_QUOTA: Credits exhausted");
+    }
+    
+    throw new Error(`Gemini OCR error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || "{}";
+  const finishReason = data.choices?.[0]?.finish_reason;
+  
+  console.log("📄 Gemini OCR response length:", content.length, "finish_reason:", finishReason);
+
+  if (finishReason === "length") {
+    console.warn("⚠️ Gemini response was truncated");
+    throw new Error("GEMINI_TRUNCATED: Response truncated");
+  }
+
+  return parseOCRResponse(content);
+}
+
+// Chamada OCR com OpenAI - Fallback
+async function callOCRWithOpenAI(imageDataUrl: string, openaiApiKey: string): Promise<RawBillData> {
+  console.log("🔄 Calling OpenAI (GPT-4o) for OCR (fallback)...");
+  
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${openaiApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: OCR_PROMPT },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Extraia TODOS os dados desta conta de energia:" },
+            { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
+          ],
+        },
+      ],
+      max_tokens: 8000,
+      temperature: 0,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("OpenAI OCR error:", response.status, errorText);
+    
+    // Check for quota errors
+    if (errorText.includes("insufficient_quota")) {
+      throw new Error("OPENAI_QUOTA: Quota exceeded - " + errorText);
+    }
+    
+    throw new Error(`OpenAI OCR error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || "{}";
+  const finishReason = data.choices?.[0]?.finish_reason;
+  
+  console.log("📄 OpenAI OCR response length:", content.length, "finish_reason:", finishReason);
+
+  if (finishReason === "length") {
+    console.warn("⚠️ OpenAI response was truncated");
+    throw new Error("OPENAI_TRUNCATED: Response truncated");
+  }
+
+  return parseOCRResponse(content);
+}
+
+// Função principal de OCR com fallback
+async function performOCRExtraction(
+  imageDataUrl: string,
+  lovableApiKey: string,
+  openaiApiKey: string
+): Promise<OCRResult> {
+  console.log("🔍 ETAPA 1: Iniciando OCR de alta precisão com fallback...");
+
+  let rawData: RawBillData = {};
+  let providerUsed: "gemini" | "openai" = "gemini";
+
+  // Tentar Gemini primeiro (até 2 tentativas)
+  let geminiAttempts = 0;
+  let geminiSuccess = false;
+  
+  while (geminiAttempts < 2 && !geminiSuccess) {
+    geminiAttempts++;
     try {
-      return JSON.parse(cleanedContent);
-    } catch (parseError) {
-      console.error("Failed to parse OCR response:", parseError);
-      console.log("Raw content (first 1000 chars):", cleanedContent.substring(0, 1000));
-      console.log("Raw content (last 500 chars):", cleanedContent.substring(cleanedContent.length - 500));
+      console.log(`📤 Gemini OCR attempt ${geminiAttempts}...`);
+      rawData = await callOCRWithGemini(imageDataUrl, lovableApiKey);
+      geminiSuccess = true;
+      providerUsed = "gemini";
+      console.log("✅ Gemini OCR succeeded");
+    } catch (geminiError) {
+      const errorMsg = geminiError instanceof Error ? geminiError.message : String(geminiError);
+      console.warn(`⚠️ Gemini attempt ${geminiAttempts} failed:`, errorMsg);
       
-      // Tentar extrair JSON parcial
-      const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          return JSON.parse(jsonMatch[0]);
-        } catch {
-          console.error("Partial JSON extraction also failed");
+      // Se for erro fatal (quota/rate limit), pular para fallback imediatamente
+      if (errorMsg.includes("GEMINI_RATE_LIMIT") || errorMsg.includes("GEMINI_QUOTA")) {
+        console.log("🔄 Gemini quota/rate limit - switching to OpenAI fallback");
+        break;
+      }
+      
+      // Se for segunda tentativa, também pular para fallback
+      if (geminiAttempts >= 2) {
+        console.log("🔄 Gemini failed after 2 attempts - switching to OpenAI fallback");
+      }
+    }
+  }
+
+  // Fallback para OpenAI se Gemini falhou
+  if (!geminiSuccess) {
+    let openaiAttempts = 0;
+    let openaiSuccess = false;
+    
+    while (openaiAttempts < 2 && !openaiSuccess) {
+      openaiAttempts++;
+      try {
+        console.log(`📤 OpenAI OCR attempt ${openaiAttempts} (fallback)...`);
+        rawData = await callOCRWithOpenAI(imageDataUrl, openaiApiKey);
+        openaiSuccess = true;
+        providerUsed = "openai";
+        console.log("✅ OpenAI OCR (fallback) succeeded");
+      } catch (openaiError) {
+        const errorMsg = openaiError instanceof Error ? openaiError.message : String(openaiError);
+        console.error(`❌ OpenAI attempt ${openaiAttempts} failed:`, errorMsg);
+        
+        // Se ambos providers falharam completamente
+        if (openaiAttempts >= 2) {
+          console.error("❌ Both OCR providers failed after all attempts");
+          
+          // Verificar se foi erro de quota em ambos
+          if (errorMsg.includes("OPENAI_QUOTA")) {
+            throw new Error("Serviço de OCR indisponível. Entre em contato com o suporte.");
+          }
+          
+          throw new Error("Não foi possível processar a imagem. Tente novamente em alguns instantes.");
         }
       }
-      
-      if (attempt < 2) {
-        throw new Error("JSON parse failed, will retry");
-      }
-      
-      return {};
     }
-  };
-
-  // Executar OCR com até 2 tentativas
-  let rawData: RawBillData = {};
-  try {
-    rawData = await callOCR(1);
-  } catch (firstError) {
-    console.warn("First OCR attempt failed:", firstError instanceof Error ? firstError.message : firstError);
-    try {
-      rawData = await callOCR(2);
-    } catch (secondError) {
-      console.error("Second OCR attempt also failed:", secondError);
-      rawData = {};
+    
+    if (!openaiSuccess) {
+      throw new Error("Não foi possível processar a imagem. Tente novamente.");
     }
   }
 
@@ -641,9 +765,10 @@ REGRAS CRÍTICAS:
     fields_not_found: Array.isArray(rawData.fields_not_found) ? rawData.fields_not_found : [],
   };
 
-  console.log("✅ OCR concluído. Campos extraídos:", Object.keys(normalized).filter(k => normalized[k as keyof RawBillData] !== undefined && normalized[k as keyof RawBillData] !== null).length);
+  console.log(`✅ OCR concluído usando ${providerUsed.toUpperCase()}. Campos extraídos:`, 
+    Object.keys(normalized).filter(k => normalized[k as keyof RawBillData] !== undefined && normalized[k as keyof RawBillData] !== null).length);
 
-  return normalized;
+  return { data: normalized, providerUsed };
 }
 
 // ============================================================
@@ -860,9 +985,15 @@ serve(async (req) => {
     });
 
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) {
-      throw new Error("OPENAI_API_KEY not configured");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    
+    if (!LOVABLE_API_KEY && !OPENAI_API_KEY) {
+      throw new Error("Neither LOVABLE_API_KEY nor OPENAI_API_KEY configured");
     }
+    
+    // At least one API key must be available for fallback to work
+    const lovableKey = LOVABLE_API_KEY || "";
+    const openaiKey = OPENAI_API_KEY || "";
 
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -888,9 +1019,11 @@ serve(async (req) => {
     const imageDataUrl = `data:${imageMimeType};base64,${imageBase64}`;
 
     // ============================================================
-    // ETAPA 1: OCR DE ALTA PRECISÃO
+    // ETAPA 1: OCR DE ALTA PRECISÃO COM FALLBACK
     // ============================================================
-    const extractedRaw = await performOCRExtraction(imageDataUrl, OPENAI_API_KEY);
+    const ocrResult = await performOCRExtraction(imageDataUrl, lovableKey, openaiKey);
+    const extractedRaw = ocrResult.data;
+    const ocrProviderUsed = ocrResult.providerUsed;
     const rawData = normalizeRawBillData(extractedRaw);
 
     const hasMinimumOCRSignals =
@@ -955,7 +1088,7 @@ serve(async (req) => {
     // ============================================================
     // ETAPA 2: ANÁLISE ESPECIALISTA
     // ============================================================
-    const specialistAnalysis = await performSpecialistAnalysis(rawData, monitoredGeneration, expectedGeneration, OPENAI_API_KEY);
+    const specialistAnalysis = await performSpecialistAnalysis(rawData, monitoredGeneration, expectedGeneration, openaiKey || lovableKey);
 
     // ============================================================
     // SALVAR NO BANCO DE DADOS
@@ -971,8 +1104,8 @@ serve(async (req) => {
         bill_analysis_id: analysisId,
         raw_json: extractedRaw,
         ocr_confidence: rawData.extraction_confidence,
-        extraction_model: "gpt-4o",
-        extraction_version: "v2.0",
+        extraction_model: ocrProviderUsed === "gemini" ? "gemini-3-flash-preview" : "gpt-4o",
+        extraction_version: "v3.0-fallback",
       });
 
     if (rawDataError) {
