@@ -26,7 +26,11 @@ import {
   SolarEnergyCard,
   SystemStatusCard,
   ActionCard,
+  BillScoreGauge,
+  CostPieChart,
+  ContextualFAQ,
 } from "@/components/clarifier";
+import { BillChatDrawer } from "@/components/chat";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   AlertDialog,
@@ -71,6 +75,7 @@ interface BillAnalysis {
   alerts: any[];
   status: string;
   created_at?: string;
+  bill_score?: number | null;
 }
 
 interface ClarifierResult {
@@ -462,6 +467,24 @@ export default function AnalysisResult() {
               </p>
             </motion.div>
 
+            {/* Score Gauge + Pie Chart Row */}
+            {(analysis.bill_score || clarifier.totalPaid > 0) && (
+              <div className="grid grid-cols-2 gap-4">
+                {analysis.bill_score && (
+                  <BillScoreGauge score={analysis.bill_score} />
+                )}
+                {clarifier.totalPaid > 0 && (
+                  <CostPieChart
+                    availabilityCost={clarifier.availabilityCost}
+                    publicLightingCost={clarifier.publicLightingCost}
+                    uncompensatedCost={clarifier.uncompensatedCost}
+                    icmsCost={toNumber(analysis.icms_cost, 0)}
+                    pisCofins={toNumber(analysis.pis_cofins_cost, 0)}
+                  />
+                )}
+              </div>
+            )}
+
             {/* Card 1: Resumo */}
             <BillSummaryCard
               totalPaid={clarifier.totalPaid}
@@ -496,6 +519,20 @@ export default function AnalysisResult() {
               expansionKwp={clarifier.expansionKwp}
               expansionModules={clarifier.expansionModules}
               onExpansionClick={handleExpansionClick}
+            />
+
+            {/* Contextual FAQ */}
+            <ContextualFAQ
+              totalPaid={clarifier.totalPaid}
+              minimumPossible={clarifier.minimumPossible}
+              tariffFlag={analysis.tariff_flag}
+              creditsBalance={clarifier.creditsBalance}
+              generationEfficiency={toNumber(analysis.generation_efficiency)}
+              onQuestionClick={(question) => {
+                // Open chat with pre-filled question - handled by BillChatDrawer
+                // For now, we could trigger toast or open drawer programmatically
+                // This will be enhanced when we add ref to drawer
+              }}
             />
 
             {/* Technical Data (Collapsible) */}
@@ -619,6 +656,14 @@ export default function AnalysisResult() {
                 </AlertDialogContent>
               </AlertDialog>
             </motion.div>
+
+            {/* Chat FAB */}
+            <BillChatDrawer
+              analysisId={analysisId!}
+              distributor={analysis.distributor}
+              referenceMonth={analysis.reference_month}
+              referenceYear={analysis.reference_year}
+            />
           </div>
         )}
       </main>
