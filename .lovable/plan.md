@@ -1,284 +1,178 @@
 
+# Plano: Migração do OCR para Lovable AI Gateway com Fallback
 
-# Plano: Solo Bill Clarifier v2.0 - Modelo Final
+## Resumo
 
-## Visao Geral
-
-O objetivo e transformar o Solo Bill Clarifier em um produto robusto, rapido e completo que responda as 7 perguntas fundamentais do cliente sobre sua conta de energia solar, com adicional de um **chat de IA especializado** e **FAQ inteligente** para maximizar a compreensao do usuario.
-
----
-
-## O que Ja Existe (Funcionando)
-
-| Funcionalidade | Status |
-|----------------|--------|
-| Autenticacao (login/signup) | OK |
-| Multi-propriedades | OK |
-| Divisao por ano/mes | OK |
-| Upload de arquivo (imagem) | OK |
-| OCR via GPT-4o | OK (mas lento) |
-| Armazenamento de dados brutos (`bill_raw_data`) | OK |
-| Analise especialista | OK (mas redundante) |
-| 5 Cards Clarifier | OK |
-| Calculo de expansao necessaria | OK |
+Migrar a função `performOCRExtraction` no Edge Function `analyze-bill` para usar o **Lovable AI Gateway (Gemini)** como provedor principal, mantendo o **OpenAI GPT-4o** como fallback automático caso o Gemini falhe.
 
 ---
 
-## Arquitetura Proposta
+## Arquitetura da Solução
 
 ```text
-+------------------+       +---------------------+       +----------------------+
-|   FRONTEND       |       |   EDGE FUNCTION     |       |   BANCO DE DADOS     |
-|   (React)        | ----> |   analyze-bill      | ----> |   Supabase           |
-+------------------+       +---------------------+       +----------------------+
-                                    |
-                                    v
-                           +------------------+
-                           |   GPT-4o (OCR)   |
-                           +------------------+
-
-+------------------+       +---------------------+
-|   FRONTEND       |       |   EDGE FUNCTION     |
-|   Chat Component | ----> |   bill-chat         |  <-- Nova Edge Function
-+------------------+       +---------------------+
-                                    |
-                                    v
-                           +-------------------+
-                           |   Gemini/GPT      |
-                           |   (Streaming)     |
-                           +-------------------+
++------------------+
+|   analyze-bill   |
++------------------+
+         |
+         v
++------------------+     Sucesso     +------------------+
+|  Gemini (Lovable)|  ------------>  |  Retorna dados   |
+|    API Gateway   |                 |     extraídos    |
++------------------+                 +------------------+
+         |
+         | Falha (erro, timeout, etc)
+         v
++------------------+     Sucesso     +------------------+
+|   OpenAI GPT-4o  |  ------------>  |  Retorna dados   |
+|    (Fallback)    |                 |     extraídos    |
++------------------+                 +------------------+
+         |
+         | Falha
+         v
++------------------+
+|   Erro retornado |
+|    ao usuário    |
++------------------+
 ```
 
 ---
 
-## Plano de Implementacao
+## Alterações Técnicas
 
-### FASE 1: Otimizacao do Pipeline OCR (Prioridade Alta)
+### 1. Modificar função `performOCRExtraction`
 
-**Problema atual:** O processo esta lento e trava com frequencia.
+**Atual (linha 370-647):**
+- Usa apenas OpenAI GPT-4o
+- `OPENAI_API_KEY` como única dependência
 
-**Solucoes:**
+**Novo:**
+- Tenta primeiro com Gemini via Lovable AI Gateway
+- Se falhar, faz fallback para OpenAI
+- Loga qual provider foi usado
 
-1. **Simplificar o pipeline para 1 chamada LLM**
-   - Remover a "Analise Especialista" separada
-   - Fazer o OCR ja retornar os dados estruturados + explicacoes basicas
-   - Reduzir tempo de processamento de ~40s para ~15s
-
-2. **Modo de analise rapida como padrao**
-   - Extrair apenas campos essenciais para os 5 cards
-   - Mover explicacoes detalhadas para o chat sob demanda
-
-3. **Melhor tratamento de erros**
-   - Timeout global de 90 segundos (reduzido de 120)
-   - Retry automatico com backoff exponencial
-   - Mensagens de erro mais claras para o usuario
-
-**Campos minimos necessarios para os 5 Cards:**
-```text
-- total_amount
-- availability_cost
-- public_lighting_cost
-- monitored_generation_kwh (input do usuario)
-- injected_energy_kwh
-- compensated_energy_kwh
-- current_credits_kwh
-- billed_consumption_kwh
-```
-
----
-
-### FASE 2: Nova Edge Function de Chat (`bill-chat`)
-
-**Objetivo:** Permitir que o usuario faca perguntas sobre sua conta especifica.
-
-**Funcionamento:**
-
-1. Recebe: `analysisId` + `messages[]` (historico do chat)
-2. Carrega dados completos da analise (`bill_analyses` + `bill_raw_data`)
-3. Cria contexto especializado com todos os dados da conta
-4. Usa Lovable AI (Gemini) para responder com streaming
-5. Responde perguntas como:
-   - "Por que paguei esse valor de ICMS?"
-   - "O que e bandeira tarifaria?"
-   - "Como posso reduzir minha conta?"
-
-**System Prompt do Chat:**
-```text
-Voce e um consultor de energia solar especializado em contas de luz brasileiras.
-O cliente enviou uma conta de energia e voce tem acesso a todos os dados extraidos.
-
-DADOS DA CONTA:
-{JSON dos dados extraidos}
-
-REGRAS:
-- Seja didatico e use linguagem simples
-- Sempre relacione suas respostas aos dados reais da conta do cliente
-- Se nao souber algo, diga que nao encontrou na conta
-- Sugira acoes praticas quando apropriado
-```
-
----
-
-### FASE 3: Componente de Chat na UI
-
-**Localizacao:** Dentro de `AnalysisResult.tsx`, como um drawer/modal ou secao expansivel.
-
-**Componentes:**
-- `BillChatDrawer.tsx` - Container do chat (drawer lateral)
-- `ChatMessage.tsx` - Bolha de mensagem (user/assistant)
-- `ChatInput.tsx` - Input com botao de enviar
-
-**Sugestoes de perguntas pre-definidas (FAQ):**
-```text
-- "Por que minha conta nao zerou?"
-- "O que e custo de disponibilidade?"
-- "Como funcionam os creditos de energia?"
-- "O que significa a bandeira tarifaria?"
-- "Meu sistema esta funcionando bem?"
-- "Como posso economizar mais?"
-```
-
----
-
-### FASE 4: FAQ Inteligente Integrado
-
-**Objetivo:** Mostrar explicacoes contextualizadas baseadas nos dados da conta.
-
-**Implementacao:**
-
-1. **Cards de FAQ na pagina de resultado**
-   - Aparecem baseados nos dados extraidos
-   - Ex: Se `tariff_flag = "vermelha"`, mostrar card sobre bandeira tarifaria
-   - Ex: Se `credits_balance > 0`, mostrar card sobre creditos
-
-2. **Secao "Entenda sua conta"**
-   - Lista de perguntas frequentes clicaveis
-   - Ao clicar, abre o chat ja com a pergunta respondida
-
-**Regras de exibicao:**
-```text
-SE total_amount > minimumPossible:
-  MOSTRAR "Por que nao paguei so o minimo?"
-  
-SE tariff_flag contiver "vermelha":
-  MOSTRAR "O que e bandeira vermelha?"
-  
-SE current_credits_kwh > 500:
-  MOSTRAR "O que fazer com creditos acumulados?"
-  
-SE generation_efficiency < 80:
-  MOSTRAR "Por que minha geracao esta baixa?"
-```
-
----
-
-### FASE 5: Melhorias na Visualizacao
-
-**Novos elementos visuais:**
-
-1. **Score visual da conta**
-   - Gauge de 0-100 baseado no `bill_score`
-   - Cores: Verde (>80), Amarelo (50-80), Vermelho (<50)
-   - Posicao: Topo da pagina de resultado
-
-2. **Grafico de composicao de custos**
-   - Pie chart mostrando: Taxas fixas vs Consumo nao compensado vs Impostos
-   - Biblioteca: Recharts (ja instalada)
-
-3. **Timeline de creditos**
-   - Mostrar evolucao dos creditos ao longo dos meses
-   - Indicar data de expiracao dos creditos mais antigos
-
----
-
-## Estrutura de Arquivos
-
-### Novos arquivos a criar:
-
-```text
-supabase/functions/bill-chat/index.ts       # Nova Edge Function de chat
-
-src/components/chat/
-  BillChatDrawer.tsx                        # Drawer com chat
-  ChatMessage.tsx                           # Componente de mensagem
-  ChatInput.tsx                             # Input do chat
-  FAQSuggestions.tsx                        # Chips de sugestoes
-
-src/components/clarifier/
-  BillScoreGauge.tsx                        # Gauge visual do score
-  CostPieChart.tsx                          # Grafico de pizza
-  ContextualFAQ.tsx                         # Cards de FAQ contextual
-```
-
-### Arquivos a modificar:
-
-```text
-supabase/functions/analyze-bill/index.ts    # Simplificar para 1 chamada
-src/pages/AnalysisResult.tsx                # Adicionar chat + FAQ + gauge
-supabase/config.toml                        # Adicionar nova funcao bill-chat
-```
-
----
-
-## Detalhes Tecnicos
-
-### Edge Function `bill-chat`
+### 2. Criar funções separadas para cada provider
 
 ```typescript
-// Estrutura do payload
-interface ChatRequest {
-  analysisId: string;
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
+// Chamada para Lovable AI (Gemini)
+async function callOCRWithGemini(
+  imageDataUrl: string, 
+  lovableApiKey: string, 
+  ocrPrompt: string
+): Promise<RawBillData>
+
+// Chamada para OpenAI (Fallback)
+async function callOCRWithOpenAI(
+  imageDataUrl: string, 
+  openaiApiKey: string, 
+  ocrPrompt: string
+): Promise<RawBillData>
+```
+
+### 3. Lógica de fallback
+
+```typescript
+let rawData: RawBillData = {};
+let providerUsed = "gemini";
+
+try {
+  rawData = await callOCRWithGemini(imageDataUrl, LOVABLE_API_KEY, ocrPrompt);
+} catch (geminiError) {
+  console.warn("⚠️ Gemini OCR failed, falling back to OpenAI:", geminiError);
+  providerUsed = "openai";
+  
+  try {
+    rawData = await callOCRWithOpenAI(imageDataUrl, OPENAI_API_KEY, ocrPrompt);
+  } catch (openaiError) {
+    console.error("❌ Both OCR providers failed");
+    throw new Error("Não foi possível processar a imagem. Tente novamente.");
+  }
 }
 
-// Fluxo:
-// 1. Carregar bill_analyses + bill_raw_data
-// 2. Montar system prompt com contexto
-// 3. Chamar Lovable AI com streaming
-// 4. Retornar SSE para o frontend
+console.log(`✅ OCR completed using ${providerUsed}`);
 ```
 
-### Streaming no Frontend
+### 4. Tratamento de erros específicos
+
+| Erro | Provider | Ação |
+|------|----------|------|
+| 429 (Rate Limit) | Gemini | Fallback para OpenAI |
+| 402 (Créditos) | Gemini | Fallback para OpenAI |
+| 500 (Server Error) | Gemini | Fallback para OpenAI |
+| Timeout | Gemini | Fallback para OpenAI |
+| insufficient_quota | OpenAI | Mensagem clara ao usuário |
+| Todos falham | Ambos | Erro genérico |
+
+### 5. Atualizar registro de provider usado
+
+Quando salvar no `bill_raw_data`, registrar qual modelo foi usado:
 
 ```typescript
-// Usar padrao SSE ja documentado
-const stream = await fetch(CHAT_URL, {
-  method: "POST",
-  body: JSON.stringify({ analysisId, messages }),
-});
-
-// Parse linha a linha
-// Atualizar estado a cada token
+extraction_model: providerUsed === "gemini" 
+  ? "gemini-3-flash-preview" 
+  : "gpt-4o"
 ```
 
 ---
 
-## Beneficios Esperados
+## Configuração de Variáveis
 
-| Metrica | Atual | Esperado |
-|---------|-------|----------|
-| Tempo de processamento | 30-60s | 10-20s |
-| Taxa de erro | ~15% | <5% |
-| Perguntas sem resposta | Muitas | Zero (via chat) |
-| Clareza para usuario | Media | Alta |
-| Engajamento | 1 visualizacao | Chat interativo |
+Ambas as API keys já estão configuradas:
+- `LOVABLE_API_KEY` - Já existe e funciona (usado no bill-chat)
+- `OPENAI_API_KEY` - Já existe (quota esgotada, mas será fallback)
 
 ---
 
-## Ordem de Implementacao Sugerida
+## Benefícios
 
-1. **Primeiro:** Otimizar Edge Function `analyze-bill` (Fase 1)
-2. **Segundo:** Criar Edge Function `bill-chat` (Fase 2)
-3. **Terceiro:** Adicionar componente de chat na UI (Fase 3)
-4. **Quarto:** Implementar FAQ contextual (Fase 4)
-5. **Quinto:** Melhorias visuais (Score gauge, charts) (Fase 5)
+| Aspecto | Antes | Depois |
+|---------|-------|--------|
+| Disponibilidade | Depende só de OpenAI | Dois providers |
+| Custo | Pago separadamente | Lovable incluído |
+| Resiliência | Falha se OpenAI cair | Fallback automático |
+| Debugging | 1 fonte de erro | Logs claros de qual provider |
 
 ---
 
-## Consideracoes de Seguranca
+## Arquivo a Modificar
 
-- Chat usa `analysisId` que e validado via RLS
-- Usuario so acessa dados de analises que tem permissao (`has_property_access`)
-- Lovable AI API Key protegida no backend
-- Nenhum dado sensivel exposto ao cliente
+- `supabase/functions/analyze-bill/index.ts`
+  - Linhas 370-647: Refatorar `performOCRExtraction`
+  - Linhas 958, 975: Atualizar referências ao modelo usado
+  - Adicionar funções auxiliares `callOCRWithGemini` e `callOCRWithOpenAI`
 
+---
+
+## Formato de Chamada ao Lovable AI Gateway
+
+```typescript
+const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${lovableApiKey}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    model: "google/gemini-3-flash-preview",
+    messages: [
+      { role: "system", content: ocrPrompt },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Extraia TODOS os dados desta conta de energia:" },
+          { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
+        ],
+      },
+    ],
+    max_tokens: 8000,
+    temperature: 0,
+  }),
+});
+```
+
+---
+
+## Testes Recomendados
+
+1. **Upload de conta válida** - Deve usar Gemini e retornar dados
+2. **Simular erro no Gemini** - Verificar fallback para OpenAI nos logs
+3. **Verificar logs** - Confirmar qual provider foi usado em cada análise
