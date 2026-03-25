@@ -194,13 +194,36 @@ export default function BillAnalyze() {
     let analysisId: string | null = null;
 
     try {
+      // Convert PDF to image before uploading (edge function only accepts images)
+      let fileToUpload: File = file;
+      let fileExt = file.name.split(".").pop();
+
+      if (isPdfFile(file)) {
+        const images = await pdfToImages(file, {
+          maxPages: 1,
+          scale: 2,
+          password: pdfPassword || undefined,
+        });
+        if (images.length === 0) throw new Error("Não foi possível converter o PDF em imagem.");
+
+        const base64Data = images[0].base64.split(",")[1];
+        const byteString = atob(base64Data);
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) {
+          ia[i] = byteString.charCodeAt(i);
+        }
+        const blob = new Blob([ab], { type: "image/png" });
+        fileToUpload = new File([blob], file.name.replace(/\.pdf$/i, ".png"), { type: "image/png" });
+        fileExt = "png";
+      }
+
       // Upload file to storage
-      const fileExt = file.name.split(".").pop();
       const fileName = `${user.id}/${id}/${referenceYear}-${referenceMonth}.${fileExt}`;
-      
+
       const { error: uploadError } = await storage
         .from("bills")
-        .upload(fileName, file, { upsert: true });
+        .upload(fileName, fileToUpload, { upsert: true });
 
       if (uploadError) throw uploadError;
 
