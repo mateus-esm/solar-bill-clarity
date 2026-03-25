@@ -247,6 +247,8 @@ export default function Index() {
     setAnalysisResult(null);
     setStep("idle");
     setStepError(undefined);
+    setPdfNeedsPassword(false);
+    setPdfPassword("");
   };
 
   const handleExpansionClick = () => {
