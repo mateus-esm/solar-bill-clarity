@@ -1141,7 +1141,7 @@ serve(async (req) => {
     // ============================================================
     // ETAPA 2: ANÁLISE ESPECIALISTA
     // ============================================================
-    const specialistAnalysis = await performSpecialistAnalysis(rawData, monitoredGeneration, expectedGeneration, openaiKey || lovableKey);
+    const specialistAnalysis = await performSpecialistAnalysis(rawData, monitoredGeneration, expectedGeneration, lovableKey, openaiKey);
 
     // ============================================================
     // SALVAR NO BANCO DE DADOS
