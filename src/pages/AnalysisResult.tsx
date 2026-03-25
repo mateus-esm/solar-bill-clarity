@@ -44,6 +44,13 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
+interface ExtraCharge {
+  description: string;
+  value: number;
+  type: "service" | "installment";
+  remaining_installments?: number;
+}
+
 interface BillAnalysis {
   id: string;
   property_id: string;
@@ -76,6 +83,8 @@ interface BillAnalysis {
   status: string;
   created_at?: string;
   bill_score?: number | null;
+  connection_type?: string | null;
+  extra_charges?: ExtraCharge[] | null;
 }
 
 interface ClarifierResult {
@@ -84,6 +93,7 @@ interface ClarifierResult {
   availabilityCost: number;
   publicLightingCost: number;
   uncompensatedCost: number;
+  extraChargesTotal: number;
   generated: number;
   injected: number;
   compensated: number;
@@ -159,7 +169,9 @@ export default function AnalysisResult() {
   const calculateClarifierResult = useCallback((analysis: BillAnalysis): ClarifierResult => {
     const availabilityCost = toNumber(analysis.availability_cost, 0);
     const publicLightingCost = toNumber(analysis.public_lighting_cost, 0);
-    const minimumPossible = availabilityCost + publicLightingCost;
+    const extraChargesTotal = (analysis.extra_charges || []).reduce((sum, c) => sum + (c.value || 0), 0);
+    // Minimum = availability (min kWh by connection type) + CIP + extra charges (services/installments)
+    const minimumPossible = availabilityCost + publicLightingCost + extraChargesTotal;
     const totalPaid = toNumber(analysis.total_amount, 0);
     const uncompensatedCost = Math.max(0, totalPaid - minimumPossible);
 
@@ -191,6 +203,7 @@ export default function AnalysisResult() {
       availabilityCost,
       publicLightingCost,
       uncompensatedCost,
+      extraChargesTotal,
       generated,
       injected,
       compensated,
@@ -489,6 +502,8 @@ export default function AnalysisResult() {
             <BillSummaryCard
               totalPaid={clarifier.totalPaid}
               minimumPossible={clarifier.minimumPossible}
+              connectionType={analysis.connection_type}
+              extraChargesTotal={clarifier.extraChargesTotal}
             />
 
             {/* Card 2: Composição */}
@@ -496,6 +511,8 @@ export default function AnalysisResult() {
               availabilityCost={clarifier.availabilityCost}
               publicLightingCost={clarifier.publicLightingCost}
               uncompensatedCost={clarifier.uncompensatedCost}
+              extraCharges={analysis.extra_charges || []}
+              connectionType={analysis.connection_type}
             />
 
             {/* Card 3: Solar */}
@@ -535,6 +552,39 @@ export default function AnalysisResult() {
               }}
             />
 
+            {/* AI Analysis — prominent qualitative block */}
+            {analysis.ai_analysis && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.28 }}
+                className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 to-card p-4 space-y-2"
+              >
+                <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  🤖 Análise da IA
+                </p>
+                <p className="text-sm text-foreground leading-relaxed">{analysis.ai_analysis}</p>
+              </motion.div>
+            )}
+
+            {/* Alerts */}
+            {analysis.alerts && analysis.alerts.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="space-y-2"
+              >
+                <p className="text-sm font-semibold text-foreground px-1">⚠️ Alertas</p>
+                {analysis.alerts.map((alert: any, index: number) => (
+                  <div key={index} className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-foreground">{typeof alert === "string" ? alert : alert.message || JSON.stringify(alert)}</p>
+                  </div>
+                ))}
+              </motion.div>
+            )}
+
             {/* Technical Data (Collapsible) */}
             <Collapsible open={showTechnicalData} onOpenChange={setShowTechnicalData}>
               <CollapsibleTrigger asChild>
@@ -571,6 +621,10 @@ export default function AnalysisResult() {
                       <p className="font-medium">R$ {analysis.pis_cofins_cost?.toFixed(2) || "0,00"}</p>
                     </div>
                     <div>
+                      <span className="text-muted-foreground">Tipo de ligação</span>
+                      <p className="font-medium capitalize">{analysis.connection_type || "—"}</p>
+                    </div>
+                    <div>
                       <span className="text-muted-foreground">Bandeira</span>
                       <p className="font-medium">{analysis.tariff_flag || "Verde"}</p>
                     </div>
@@ -579,29 +633,6 @@ export default function AnalysisResult() {
                       <p className="font-medium">R$ {analysis.fine_amount?.toFixed(2) || "0,00"}</p>
                     </div>
                   </div>
-                  
-                  {/* AI Analysis */}
-                  {analysis.ai_analysis && (
-                    <div className="pt-3 border-t border-border">
-                      <span className="text-sm text-muted-foreground">Análise da IA</span>
-                      <p className="mt-1 text-sm text-foreground">{analysis.ai_analysis}</p>
-                    </div>
-                  )}
-
-                  {/* Alerts */}
-                  {analysis.alerts && analysis.alerts.length > 0 && (
-                    <div className="pt-3 border-t border-border">
-                      <span className="text-sm text-muted-foreground">Alertas</span>
-                      <div className="mt-2 space-y-2">
-                        {analysis.alerts.map((alert: any, index: number) => (
-                          <div key={index} className="flex items-start gap-2 p-2 rounded bg-amber-500/10 border border-amber-500/20">
-                            <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                            <p className="text-sm text-foreground">{typeof alert === 'string' ? alert : alert.message || alert}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </motion.div>
               </CollapsibleContent>
             </Collapsible>

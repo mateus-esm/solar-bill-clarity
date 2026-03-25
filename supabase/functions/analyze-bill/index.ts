@@ -27,6 +27,7 @@ interface RawBillData {
   consumer_class?: string;
   subclass?: string;
   tariff_modality?: string;
+  connection_type?: string; // "monofasico" | "bifasico" | "trifasico"
   
   // Período
   reference_month?: number;
@@ -87,10 +88,14 @@ interface RawBillData {
   credit_discount?: number;
   total_amount?: number;
   
+  // Cobranças extras (serviços contratados, parcelamentos)
+  service_items?: Array<{ description: string; value: number }>;
+  installment_items?: Array<{ description: string; value: number; remaining_installments?: number }>;
+
   // Textos importantes
   legal_notices?: string[];
   tariff_notes?: string[];
-  
+
   // Metadados
   extraction_confidence?: number;
   fields_not_found?: string[];
@@ -159,6 +164,7 @@ function normalizeRawBillData(input: unknown): RawBillData {
   out.consumer_class = toStringOrUndefined(raw.consumer_class);
   out.subclass = toStringOrUndefined(raw.subclass);
   out.tariff_modality = toStringOrUndefined(raw.tariff_modality);
+  out.connection_type = toStringOrUndefined(raw.connection_type);
 
   // Período
   out.reference_month = toInt(raw.reference_month);
@@ -218,6 +224,22 @@ function normalizeRawBillData(input: unknown): RawBillData {
   out.subtotal_before_taxes = toNumber(raw.subtotal_before_taxes);
   out.credit_discount = toNumber(raw.credit_discount);
   out.total_amount = toNumber(raw.total_amount);
+
+  // Cobranças extras
+  if (Array.isArray(raw.service_items)) {
+    out.service_items = raw.service_items
+      .filter((i: any) => i && typeof i === "object")
+      .map((i: any) => ({ description: String(i.description || ""), value: Number(i.value) || 0 }));
+  }
+  if (Array.isArray(raw.installment_items)) {
+    out.installment_items = raw.installment_items
+      .filter((i: any) => i && typeof i === "object")
+      .map((i: any) => ({
+        description: String(i.description || ""),
+        value: Number(i.value) || 0,
+        remaining_installments: i.remaining_installments != null ? Number(i.remaining_installments) : undefined,
+      }));
+  }
 
   // Textos importantes
   out.legal_notices = normalizeStringArray(raw.legal_notices);
@@ -391,6 +413,7 @@ Extraia TODOS os campos disponíveis e retorne um JSON válido:
   "consumer_class": "classe de consumo (Residencial, Comercial, Industrial, Rural)",
   "subclass": "subgrupo tarifário (B1, B2, B3, A4, etc)",
   "tariff_modality": "modalidade (Convencional, Branca, Horosazonal Verde, Horosazonal Azul)",
+  "connection_type": "tipo de ligação elétrica da unidade consumidora: monofasico, bifasico ou trifasico. Procure nos dados técnicos, informações da instalação, tipo de ramal ou número de fases. Trifásico tem 3 fases, bifásico 2 fases, monofásico 1 fase.",
   
   "reference_month": número do mês de referência (1-12),
   "reference_year": ano de referência (ex: 2024),
@@ -419,8 +442,8 @@ Extraia TODOS os campos disponíveis e retorne um JSON válido:
   "energy_cost_tusd": custo do TUSD em R$,
   "energy_cost": custo total de energia cobrado (TE + TUSD) após compensações em R$,
   "energy_cost_gross": valor BRUTO de energia ANTES de créditos/compensações (soma positiva da tabela de faturamento) em R$,
-  "availability_cost": custo de disponibilidade/demanda mínima em R$,
-  "public_lighting_cost": contribuição de iluminação pública (CIP/COSIP) em R$,
+  "availability_cost": "CRÍTICO - Custo de Disponibilidade (taxa mínima obrigatória do GRUPO B/Baixa Tensão). Este valor VARIA pelo tipo de ligação: Monofásico = 30 kWh × tarifa, Bifásico = 50 kWh × tarifa, Trifásico = 100 kWh × tarifa. Procure na tabela de faturamento por itens como 'Custo de Disponibilidade', 'Disponibilidade', 'Mínimo Faturável' ou 'Demanda'. Extraia o valor TOTAL em R$ (com impostos). Para trifásico com tarifa ~R$0,65/kWh, o valor esperado é ~R$65-120. NÃO confunda com CIP/Iluminação Pública.",
+  "public_lighting_cost": "contribuição de iluminação pública (CIP/COSIP) em R$. É a contribuição municipal — valor fixo cobrado pela prefeitura.",
   
   "icms_base": base de cálculo do ICMS em R$,
   "icms_rate": alíquota do ICMS em % (ex: 25 para 25%),
@@ -463,9 +486,24 @@ Extraia TODOS os campos disponíveis e retorne um JSON válido:
     }
   ],
   
+  "service_items": [
+    {
+      "description": "nome do serviço contratado ou produto adicional (ex: Proteção Elétrica, Seguro Residencial, TV por Assinatura via fatura, etc)",
+      "value": valor_em_R$
+    }
+  ],
+
+  "installment_items": [
+    {
+      "description": "descrição do parcelamento em aberto (ex: Parcelamento de débito anterior, Parcelamento equipamentos, etc)",
+      "value": valor_mensal_em_R$,
+      "remaining_installments": numero_de_parcelas_restantes_ou_null
+    }
+  ],
+
   "legal_notices": ["lista de avisos legais importantes encontrados"],
   "tariff_notes": ["notas sobre tarifas ou reajustes mencionados"],
-  
+
   "extraction_confidence": confiança geral da extração (0-100),
   "fields_not_found": ["lista de campos que não foram encontrados na conta"]
 }
@@ -890,7 +928,9 @@ REGRAS:
 3. Destaque PROBLEMAS encontrados (multas, eficiência baixa, cobranças irregulares)
 4. Calcule ECONOMIA real proporcionada pelo sistema solar
 5. Gere alertas para qualquer anomalia
-6. Retorne APENAS o JSON válido, sem markdown`;
+6. Se houver service_items ou installment_items nos dados, gere alerta e explique que esses serviços/parcelamentos estão aumentando o valor da conta
+7. O custo de disponibilidade mínimo para GRUPO B depende do tipo de ligação: Monofásico = 30 kWh, Bifásico = 50 kWh, Trifásico = 100 kWh. Se connection_type for trifasico, o valor mínimo da conta inclui pelo menos 100 kWh × tarifa + CIP + impostos, podendo superar R$100. Mencione isso na análise se relevante.
+8. Retorne APENAS o JSON válido, sem markdown`;
 
   console.log("🧠 ETAPA 2: Iniciando análise especialista...");
 
@@ -1224,7 +1264,13 @@ serve(async (req) => {
       
       demand_contracted_kw: rawData.demand_contracted_kw ?? null,
       demand_measured_kw: rawData.demand_measured_kw ?? null,
-      
+
+      connection_type: rawData.connection_type ?? null,
+      extra_charges: [
+        ...(rawData.service_items || []).map(i => ({ ...i, type: "service" })),
+        ...(rawData.installment_items || []).map(i => ({ ...i, type: "installment" })),
+      ],
+
       real_consumption_kwh: realConsumption,
       generation_efficiency: generationEfficiency,
       estimated_savings: specialistAnalysis.metrics.savings_this_month,
