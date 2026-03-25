@@ -57,6 +57,10 @@ export default function Index() {
   const [stepError, setStepError] = useState<string | undefined>();
   const [showResults, setShowResults] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<ClarifierResult | null>(null);
+  const [pdfNeedsPassword, setPdfNeedsPassword] = useState(false);
+  const [pdfPassword, setPdfPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [checkingPdf, setCheckingPdf] = useState(false);
   const { toast } = useToast();
 
   const toNumber = (value: unknown, fallback = 0): number => {
