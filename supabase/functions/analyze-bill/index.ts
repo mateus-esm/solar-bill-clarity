@@ -894,71 +894,85 @@ REGRAS:
 
   console.log("🧠 ETAPA 2: Iniciando análise especialista...");
 
-  const messages = [
-    { role: "system", content: analystPrompt },
-    { role: "user", content: "Analise estes dados e gere o relatório completo:" },
-  ];
+  const CLAUDE_API_KEY = Deno.env.get("CLAUDE_API_KEY");
 
   let responseContent = "";
-  let providerUsed = "gemini";
+  let providerUsed = "claude";
 
-  // Try Gemini first via Lovable AI Gateway
-  try {
-    console.log("🚀 Specialist analysis: trying Gemini...");
-    const geminiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${lovableApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages,
-        max_tokens: 6000,
-        temperature: 0.7,
-      }),
-    });
+  // Try Claude first (primary)
+  if (CLAUDE_API_KEY) {
+    try {
+      console.log("🚀 Specialist analysis: trying Claude Sonnet...");
+      const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": CLAUDE_API_KEY,
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 6000,
+          temperature: 0.7,
+          system: analystPrompt,
+          messages: [
+            { role: "user", content: "Analise estes dados e gere o relatório completo:" },
+          ],
+        }),
+      });
 
-    if (!geminiResponse.ok) {
-      const errorText = await geminiResponse.text();
-      console.warn("⚠️ Gemini specialist failed:", geminiResponse.status, errorText);
-      throw new Error(`Gemini error: ${geminiResponse.status}`);
+      if (!claudeResponse.ok) {
+        const errorText = await claudeResponse.text();
+        console.warn("⚠️ Claude specialist failed:", claudeResponse.status, errorText);
+        throw new Error(`Claude error: ${claudeResponse.status}`);
+      }
+
+      const claudeData = await claudeResponse.json();
+      responseContent = claudeData.content?.[0]?.text || "{}";
+      console.log("✅ Specialist analysis completed with Claude Sonnet");
+    } catch (claudeError) {
+      console.warn("⚠️ Claude specialist failed, trying Gemini fallback...", claudeError);
+      providerUsed = "gemini";
     }
+  } else {
+    console.warn("⚠️ CLAUDE_API_KEY not configured, skipping Claude");
+    providerUsed = "gemini";
+  }
 
-    const geminiData = await geminiResponse.json();
-    responseContent = geminiData.choices?.[0]?.message?.content || "{}";
-    console.log("✅ Specialist analysis completed with Gemini");
-  } catch (geminiError) {
-    console.warn("⚠️ Gemini specialist failed, trying OpenAI fallback...", geminiError);
-    providerUsed = "openai";
+  // Fallback to Gemini via Lovable AI Gateway
+  if (providerUsed === "gemini") {
+    try {
+      console.log("🔄 Specialist analysis: trying Gemini (fallback)...");
+      const geminiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${lovableApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-3-flash-preview",
+          messages: [
+            { role: "system", content: analystPrompt },
+            { role: "user", content: "Analise estes dados e gere o relatório completo:" },
+          ],
+          max_tokens: 6000,
+          temperature: 0.7,
+        }),
+      });
 
-    if (!openaiApiKey) {
+      if (!geminiResponse.ok) {
+        const errorText = await geminiResponse.text();
+        console.error("❌ Gemini specialist also failed:", errorText);
+        throw new Error(`Gemini error: ${geminiResponse.status}`);
+      }
+
+      const geminiData = await geminiResponse.json();
+      responseContent = geminiData.choices?.[0]?.message?.content || "{}";
+      console.log("✅ Specialist analysis completed with Gemini fallback");
+    } catch (geminiError) {
+      console.error("❌ All specialist providers failed");
       throw new Error("Análise especialista indisponível. Tente novamente.");
     }
-
-    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${openaiApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        messages,
-        max_tokens: 4000,
-        temperature: 0.7,
-      }),
-    });
-
-    if (!openaiResponse.ok) {
-      const errorText = await openaiResponse.text();
-      console.error("❌ OpenAI specialist also failed:", errorText);
-      throw new Error(`Análise especialista falhou: ${openaiResponse.status}`);
-    }
-
-    const openaiData = await openaiResponse.json();
-    responseContent = openaiData.choices?.[0]?.message?.content || "{}";
-    console.log("✅ Specialist analysis completed with OpenAI fallback");
   }
 
   console.log(`📊 Análise especialista (${providerUsed}) response length:`, responseContent.length);
