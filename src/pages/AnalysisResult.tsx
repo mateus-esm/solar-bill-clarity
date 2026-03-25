@@ -449,64 +449,83 @@ export default function AnalysisResult() {
           </motion.div>
         )}
 
-        {/* Completed Analysis - Clarifier Cards */}
+        {/* Completed Analysis */}
         {(analysis.status === "completed" || analysis.status === "pending") && (
-          <div className="space-y-4">
-            {/* Header */}
+          <div className="space-y-5 pb-28">
+
+            {/* ── HERO CARD ─────────────────────────────── */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-6"
+              className="rounded-2xl border border-border bg-gradient-to-br from-card via-card to-primary/5 p-5 space-y-5"
             >
-              <h1 className="text-2xl font-bold text-foreground">
-                Análise de {monthNames[analysis.reference_month - 1]} {analysis.reference_year}
-              </h1>
-              <p className="text-muted-foreground mt-1">
-                {analysis.distributor || "Distribuidora"} • UC: {analysis.account_number || "—"}
-              </p>
-            </motion.div>
-
-            {/* Motivational quote */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.05 }}
-              className="text-center px-4 py-3 bg-muted/30 rounded-lg border border-border"
-            >
-              <p className="text-sm text-muted-foreground italic">
-                "Energia solar não zera a conta — ela reduz o consumo.
-                <br />
-                Aqui está exatamente como isso aconteceu no seu caso."
-              </p>
-            </motion.div>
-
-            {/* Score Gauge + Pie Chart Row */}
-            {(analysis.bill_score || clarifier.totalPaid > 0) && (
-              <div className="grid grid-cols-2 gap-4">
-                {analysis.bill_score && (
-                  <BillScoreGauge score={analysis.bill_score} />
-                )}
-                {clarifier.totalPaid > 0 && (
-                  <CostPieChart
-                    availabilityCost={clarifier.availabilityCost}
-                    publicLightingCost={clarifier.publicLightingCost}
-                    uncompensatedCost={clarifier.uncompensatedCost}
-                    icmsCost={toNumber(analysis.icms_cost, 0)}
-                    pisCofins={toNumber(analysis.pis_cofins_cost, 0)}
-                  />
-                )}
+              {/* Title row */}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  {analysis.distributor || "Distribuidora"} · UC {analysis.account_number || "—"}
+                </p>
+                <h1 className="text-xl font-bold text-foreground mt-0.5">
+                  Análise de {monthNames[analysis.reference_month - 1]} {analysis.reference_year}
+                </h1>
               </div>
+
+              {/* Score + key numbers */}
+              <div className="flex items-center gap-5">
+                {analysis.bill_score && (
+                  <BillScoreGauge score={analysis.bill_score} size="lg" />
+                )}
+                <div className="flex-1 space-y-3">
+                  <div className="p-3 rounded-xl bg-muted/50 border border-border">
+                    <p className="text-xs text-muted-foreground">Você pagou</p>
+                    <p className="text-2xl font-bold text-foreground">
+                      {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(clarifier.totalPaid)}
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-primary/8 border border-primary/20">
+                    <p className="text-xs text-muted-foreground">Mínimo obrigatório
+                      {analysis.connection_type && (
+                        <span className="ml-1 capitalize">({analysis.connection_type})</span>
+                      )}
+                    </p>
+                    <p className="text-2xl font-bold text-primary">
+                      {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(clarifier.minimumPossible)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Solar savings highlight */}
+              {clarifier.totalPaid > clarifier.minimumPossible && (
+                <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 flex items-center gap-3">
+                  <span className="text-2xl">☀️</span>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      Solar compensou tudo que podia
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      O que resta acima do mínimo (
+                      {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(clarifier.totalPaid - clarifier.minimumPossible)}
+                      ) é consumo real e/ou cobranças extras — não há mais o que o solar possa compensar.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+
+            {/* ── COST BREAKDOWN CHART ───────────────────── */}
+            {clarifier.totalPaid > 0 && (
+              <CostPieChart
+                availabilityCost={clarifier.availabilityCost}
+                publicLightingCost={clarifier.publicLightingCost}
+                uncompensatedCost={clarifier.uncompensatedCost}
+                icmsCost={toNumber(analysis.icms_cost, 0)}
+                pisCofins={toNumber(analysis.pis_cofins_cost, 0)}
+                extraChargesTotal={clarifier.extraChargesTotal}
+                totalPaid={clarifier.totalPaid}
+              />
             )}
 
-            {/* Card 1: Resumo */}
-            <BillSummaryCard
-              totalPaid={clarifier.totalPaid}
-              minimumPossible={clarifier.minimumPossible}
-              connectionType={analysis.connection_type}
-              extraChargesTotal={clarifier.extraChargesTotal}
-            />
-
-            {/* Card 2: Composição */}
+            {/* ── COST COMPOSITION DETAIL ───────────────── */}
             <CostCompositionCard
               availabilityCost={clarifier.availabilityCost}
               publicLightingCost={clarifier.publicLightingCost}
@@ -515,7 +534,7 @@ export default function AnalysisResult() {
               connectionType={analysis.connection_type}
             />
 
-            {/* Card 3: Solar */}
+            {/* ── SOLAR FLOW ─────────────────────────────── */}
             <SolarEnergyCard
               generated={clarifier.generated}
               injected={clarifier.injected}
@@ -523,14 +542,72 @@ export default function AnalysisResult() {
               creditsBalance={clarifier.creditsBalance}
             />
 
-            {/* Card 4: Status do Sistema */}
+            {/* ── SYSTEM PERFORMANCE ────────────────────── */}
             <SystemStatusCard
               expectedGeneration={clarifier.expectedGeneration}
               actualGeneration={clarifier.actualGeneration}
               status={clarifier.systemStatus}
             />
 
-            {/* Card 5: Ação */}
+            {/* ── AI ANALYSIS ───────────────────────────── */}
+            {analysis.ai_analysis && (
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.25 }}
+                className="rounded-2xl border border-primary/20 overflow-hidden"
+              >
+                <div className="gradient-bg px-5 py-3 flex items-center gap-2">
+                  <span className="text-lg">🤖</span>
+                  <p className="text-sm font-semibold text-white">Análise da IA</p>
+                </div>
+                <div className="p-5 bg-card">
+                  <p className="text-sm text-foreground leading-relaxed">{analysis.ai_analysis}</p>
+                </div>
+              </motion.div>
+            )}
+
+            {/* ── ALERTS ────────────────────────────────── */}
+            {analysis.alerts && analysis.alerts.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.28 }}
+                className="space-y-2"
+              >
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
+                  Alertas
+                </p>
+                {analysis.alerts.map((alert: any, index: number) => {
+                  const text = typeof alert === "string" ? alert : alert.message || JSON.stringify(alert);
+                  const isSuccess = text.includes("✅") || text.includes("🎉");
+                  const isError = text.includes("❌") || text.includes("🔴");
+                  return (
+                    <div
+                      key={index}
+                      className={`flex items-start gap-3 p-3 rounded-xl border text-sm ${
+                        isSuccess
+                          ? "bg-emerald-500/8 border-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                          : isError
+                          ? "bg-red-500/8 border-red-500/20 text-red-700 dark:text-red-300"
+                          : "bg-amber-500/8 border-amber-500/20 text-amber-700 dark:text-amber-300"
+                      }`}
+                    >
+                      {isSuccess ? (
+                        <span className="shrink-0 mt-0.5">✅</span>
+                      ) : isError ? (
+                        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-red-500" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+                      )}
+                      <span className="text-foreground">{text}</span>
+                    </div>
+                  );
+                })}
+              </motion.div>
+            )}
+
+            {/* ── EXPANSION / ACTION ────────────────────── */}
             <ActionCard
               extraGenerationNeeded={clarifier.extraGenerationNeeded}
               expansionKwp={clarifier.expansionKwp}
@@ -538,125 +615,69 @@ export default function AnalysisResult() {
               onExpansionClick={handleExpansionClick}
             />
 
-            {/* Contextual FAQ */}
-            <ContextualFAQ
-              totalPaid={clarifier.totalPaid}
-              minimumPossible={clarifier.minimumPossible}
-              tariffFlag={analysis.tariff_flag}
-              creditsBalance={clarifier.creditsBalance}
-              generationEfficiency={toNumber(analysis.generation_efficiency)}
-              onQuestionClick={(question) => {
-                // Open chat with pre-filled question - handled by BillChatDrawer
-                // For now, we could trigger toast or open drawer programmatically
-                // This will be enhanced when we add ref to drawer
-              }}
-            />
-
-            {/* AI Analysis — prominent qualitative block */}
-            {analysis.ai_analysis && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.28 }}
-                className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 to-card p-4 space-y-2"
+            {/* ── CHAT CTA ──────────────────────────────── */}
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.32 }}
+              className="rounded-2xl border border-border bg-card p-5 text-center space-y-3"
+            >
+              <p className="text-base font-semibold text-foreground">Ficou com dúvida?</p>
+              <p className="text-sm text-muted-foreground">
+                O assistente Solo pode explicar qualquer linha desta conta em detalhes.
+              </p>
+              <Button
+                variant="gradient"
+                className="w-full"
+                onClick={() => {
+                  // trigger chat FAB click via DOM — BillChatDrawer manages its own state
+                  document.getElementById("chat-fab-trigger")?.click();
+                }}
               >
-                <p className="text-sm font-semibold text-foreground flex items-center gap-2">
-                  🤖 Análise da IA
-                </p>
-                <p className="text-sm text-foreground leading-relaxed">{analysis.ai_analysis}</p>
-              </motion.div>
-            )}
+                <span className="mr-2">💬</span>
+                Perguntar sobre esta conta
+              </Button>
+            </motion.div>
 
-            {/* Alerts */}
-            {analysis.alerts && analysis.alerts.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="space-y-2"
-              >
-                <p className="text-sm font-semibold text-foreground px-1">⚠️ Alertas</p>
-                {analysis.alerts.map((alert: any, index: number) => (
-                  <div key={index} className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                    <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-foreground">{typeof alert === "string" ? alert : alert.message || JSON.stringify(alert)}</p>
-                  </div>
-                ))}
-              </motion.div>
-            )}
-
-            {/* Technical Data (Collapsible) */}
+            {/* ── TECHNICAL DATA ────────────────────────── */}
             <Collapsible open={showTechnicalData} onOpenChange={setShowTechnicalData}>
               <CollapsibleTrigger asChild>
-                <Button variant="ghost" className="w-full justify-between">
-                  <span className="text-sm font-medium">Dados Técnicos</span>
-                  {showTechnicalData ? (
-                    <ChevronUp className="h-4 w-4" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4" />
-                  )}
+                <Button variant="ghost" className="w-full justify-between text-muted-foreground">
+                  <span className="text-xs font-medium uppercase tracking-wide">Dados Técnicos</span>
+                  {showTechnicalData ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent>
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  className="mt-2 p-4 rounded-lg bg-muted/30 border border-border space-y-3"
-                >
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Consumo Faturado</span>
-                      <p className="font-medium">{analysis.billed_consumption_kwh?.toFixed(0) || "—"} kWh</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Eficiência</span>
-                      <p className="font-medium">{analysis.generation_efficiency?.toFixed(1) || "—"}%</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">ICMS</span>
-                      <p className="font-medium">R$ {analysis.icms_cost?.toFixed(2) || "0,00"}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">PIS/COFINS</span>
-                      <p className="font-medium">R$ {analysis.pis_cofins_cost?.toFixed(2) || "0,00"}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Tipo de ligação</span>
-                      <p className="font-medium capitalize">{analysis.connection_type || "—"}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Bandeira</span>
-                      <p className="font-medium">{analysis.tariff_flag || "Verde"}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Multa/Juros</span>
-                      <p className="font-medium">R$ {analysis.fine_amount?.toFixed(2) || "0,00"}</p>
-                    </div>
+                <div className="mt-2 p-4 rounded-xl bg-muted/30 border border-border">
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                    {[
+                      { label: "Consumo faturado", value: `${analysis.billed_consumption_kwh?.toFixed(0) || "—"} kWh` },
+                      { label: "Eficiência solar", value: `${analysis.generation_efficiency?.toFixed(1) || "—"}%` },
+                      { label: "ICMS", value: `R$ ${analysis.icms_cost?.toFixed(2) || "0,00"}` },
+                      { label: "PIS/COFINS", value: `R$ ${analysis.pis_cofins_cost?.toFixed(2) || "0,00"}` },
+                      { label: "Tipo de ligação", value: analysis.connection_type ? analysis.connection_type.charAt(0).toUpperCase() + analysis.connection_type.slice(1) : "—" },
+                      { label: "Bandeira tarifária", value: analysis.tariff_flag || "Verde" },
+                      { label: "Multa / Juros", value: `R$ ${analysis.fine_amount?.toFixed(2) || "0,00"}` },
+                      { label: "Titular", value: analysis.account_holder || "—" },
+                    ].map(({ label, value }) => (
+                      <div key={label}>
+                        <p className="text-xs text-muted-foreground">{label}</p>
+                        <p className="font-medium text-foreground">{value}</p>
+                      </div>
+                    ))}
                   </div>
-                </motion.div>
+                </div>
               </CollapsibleContent>
             </Collapsible>
 
-            {/* Actions */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.35 }}
-              className="flex flex-wrap gap-4 pt-4"
-            >
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => navigate(`/property/${id}`)}
-              >
+            {/* ── BOTTOM ACTIONS ────────────────────────── */}
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" className="flex-1" onClick={() => navigate(`/property/${id}`)}>
                 <ArrowLeft className="h-4 w-4 mr-2" />
-                Voltar ao histórico
+                Histórico
               </Button>
               {signedBillUrl && (
-                <Button
-                  variant="secondary"
-                  onClick={() => window.open(signedBillUrl, "_blank")}
-                >
+                <Button variant="secondary" onClick={() => window.open(signedBillUrl, "_blank")}>
                   <FileText className="h-4 w-4 mr-2" />
                   Ver fatura
                 </Button>
@@ -664,11 +685,7 @@ export default function AnalysisResult() {
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button variant="destructive" size="icon" disabled={deleting}>
-                    {deleting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
+                    {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
@@ -686,14 +703,15 @@ export default function AnalysisResult() {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
-            </motion.div>
+            </div>
 
-            {/* Chat FAB */}
+            {/* ── CHAT FAB ──────────────────────────────── */}
             <BillChatDrawer
               analysisId={analysisId!}
               distributor={analysis.distributor}
               referenceMonth={analysis.reference_month}
               referenceYear={analysis.reference_year}
+              triggerId="chat-fab-trigger"
             />
           </div>
         )}

@@ -25,6 +25,7 @@ interface BillChatDrawerProps {
   distributor?: string | null;
   referenceMonth?: number;
   referenceYear?: number;
+  triggerId?: string;
 }
 
 const CHAT_URL = "https://uhuodcdbvtbrhovkyywp.supabase.co/functions/v1/bill-chat";
@@ -34,6 +35,7 @@ export function BillChatDrawer({
   distributor,
   referenceMonth,
   referenceYear,
+  triggerId,
 }: BillChatDrawerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -177,6 +179,7 @@ export function BillChatDrawer({
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
       <SheetTrigger asChild>
         <Button
+          id={triggerId}
           variant="gradient"
           size="lg"
           className="fixed bottom-6 right-6 h-14 px-5 shadow-lg z-50 gap-2 rounded-full"
