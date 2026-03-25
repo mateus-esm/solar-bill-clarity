@@ -1012,8 +1012,20 @@ serve(async (req) => {
       throw new Error("Either fileUrl or fileBase64 must be provided");
     }
 
+    // If mime type is still PDF (legacy URL or detection issue), log warning but don't reject
+    // The frontend converts PDFs to images, but storage might return old content-type
     if (imageMimeType.includes("pdf")) {
-      throw new Error("PDFs não são suportados diretamente. Por favor, converta para imagem ou tire uma foto da sua conta.");
+      console.warn("⚠️ File detected as PDF. Attempting to process anyway as image...");
+      // Try to detect actual content by checking base64 header
+      if (imageBase64.startsWith("iVBOR")) {
+        imageMimeType = "image/png";
+        console.log("✅ Content is actually PNG, corrected mime type");
+      } else if (imageBase64.startsWith("/9j/")) {
+        imageMimeType = "image/jpeg";
+        console.log("✅ Content is actually JPEG, corrected mime type");
+      } else {
+        throw new Error("PDFs não são suportados diretamente. Por favor, converta para imagem ou tire uma foto da sua conta.");
+      }
     }
 
     const imageDataUrl = `data:${imageMimeType};base64,${imageBase64}`;
