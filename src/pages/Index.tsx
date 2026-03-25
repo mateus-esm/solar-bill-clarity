@@ -1,8 +1,9 @@
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, Loader2, RotateCcw } from "lucide-react";
+import { Zap, Loader2, RotateCcw, Lock, Eye, EyeOff } from "lucide-react";
 import soloLogo from "@/assets/solo-logo.png";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { BillUpload } from "@/components/BillUpload";
 import { SolarInput } from "@/components/SolarInput";
 import { AnalysisStepper, type AnalysisStep } from "@/components/AnalysisStepper";
@@ -15,7 +16,7 @@ import {
 } from "@/components/clarifier";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { pdfToImages, isPdfFile } from "@/lib/pdfToImages";
+import { pdfToImages, isPdfFile, PdfPasswordRequiredError, PdfPasswordIncorrectError } from "@/lib/pdfToImages";
 
 // Interface simplificada para o Bill Clarifier v1.0
 interface ClarifierResult {
