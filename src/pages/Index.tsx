@@ -136,7 +136,7 @@ export default function Index() {
 
       // 1) Uploading – convert PDF to image if needed
       if (isPdfFile(file)) {
-        const images = await pdfToImages(file, { maxPages: 1, scale: 3 });
+        const images = await pdfToImages(file, { maxPages: 1, scale: 3, password: pdfPassword || undefined });
         if (!images.length) throw new Error("Não foi possível ler o PDF");
         imageBase64 = images[0].base64.split(",")[1];
         imageMimeType = "image/png";
