@@ -90,7 +90,30 @@ interface RawBillData {
   
   // Cobranças extras (serviços contratados, parcelamentos)
   service_items?: Array<{ description: string; value: number }>;
-  installment_items?: Array<{ description: string; value: number; remaining_installments?: number }>;
+  installment_items?: Array<{ description: string; value: number; remaining_installments?: number; total_installments?: number }>;
+
+  // Tabela de faturamento linha a linha
+  billing_table_items?: Array<{
+    description: string;       // ex: "Energia Consumida Faturada TE"
+    quantity_kwh?: number;
+    unit_price?: number;
+    total_value: number;
+    icms_base?: number;
+    icms_rate?: number;
+    icms_value?: number;
+    is_credit?: boolean;       // true se é item negativo (crédito)
+  }>;
+
+  // Resumo de créditos SCEE (rodapé da conta)
+  scee_injected_kwh?: number;     // Energia Injetada HFP no mês
+  scee_used_kwh?: number;         // Saldo utilizado no mês
+  scee_balance_kwh?: number;      // Saldo atualizado
+  scee_expiring_kwh?: number;     // Créditos a Expirar no próximo mês
+
+  // Período e leitura
+  tariff_period?: string;         // ex: "Verde: 07/01 - 04/02"
+  reading_period_from?: string;   // data início leitura
+  reading_period_to?: string;     // data fim leitura
 
   // Textos importantes
   legal_notices?: string[];
@@ -238,8 +261,36 @@ function normalizeRawBillData(input: unknown): RawBillData {
         description: String(i.description || ""),
         value: Number(i.value) || 0,
         remaining_installments: i.remaining_installments != null ? Number(i.remaining_installments) : undefined,
+        total_installments: i.total_installments != null ? Number(i.total_installments) : undefined,
       }));
   }
+
+  // Tabela de faturamento
+  if (Array.isArray(raw.billing_table_items)) {
+    out.billing_table_items = raw.billing_table_items
+      .filter((i: any) => i && typeof i === "object")
+      .map((i: any) => ({
+        description: String(i.description || ""),
+        quantity_kwh: i.quantity_kwh != null ? Number(i.quantity_kwh) : undefined,
+        unit_price: i.unit_price != null ? Number(i.unit_price) : undefined,
+        total_value: Number(i.total_value) || 0,
+        icms_base: i.icms_base != null ? Number(i.icms_base) : undefined,
+        icms_rate: i.icms_rate != null ? Number(i.icms_rate) : undefined,
+        icms_value: i.icms_value != null ? Number(i.icms_value) : undefined,
+        is_credit: Boolean(i.is_credit),
+      }));
+  }
+
+  // Créditos SCEE
+  out.scee_injected_kwh = toNumber(raw.scee_injected_kwh);
+  out.scee_used_kwh = toNumber(raw.scee_used_kwh);
+  out.scee_balance_kwh = toNumber(raw.scee_balance_kwh);
+  out.scee_expiring_kwh = toNumber(raw.scee_expiring_kwh);
+
+  // Período
+  out.tariff_period = toStringOrUndefined(raw.tariff_period);
+  out.reading_period_from = toStringOrUndefined(raw.reading_period_from);
+  out.reading_period_to = toStringOrUndefined(raw.reading_period_to);
 
   // Textos importantes
   out.legal_notices = normalizeStringArray(raw.legal_notices);
@@ -488,25 +539,57 @@ Extraia TODOS os campos disponíveis e retorne um JSON válido:
   
   "service_items": [
     {
-      "description": "nome do serviço contratado ou produto adicional (ex: Proteção Elétrica, Seguro Residencial, TV por Assinatura via fatura, etc)",
+      "description": "NOME EXATO do serviço como aparece na conta (ex: 'COB SEGURO SUPER 3 + 1 PRAT', 'COB SEGURO SUPER GARANTIA PRAT', 'DOACAO PEQ NAZARENO', 'Proteção Elétrica', etc). PROCURE seções como: 'Outros Serviços', 'Serviços Contratados', 'Produtos e Serviços', cobranças com código 0800, seguros, doações, planos.",
       "value": valor_em_R$
     }
   ],
 
   "installment_items": [
     {
-      "description": "descrição do parcelamento em aberto (ex: Parcelamento de débito anterior, Parcelamento equipamentos, etc)",
+      "description": "NOME EXATO do parcelamento (ex: 'Parcelamento Normal', 'Parcelamento de Débito', 'Acordo de Parcelamento')",
       "value": valor_mensal_em_R$,
-      "remaining_installments": numero_de_parcelas_restantes_ou_null
+      "remaining_installments": numero_parcela_atual_ou_null,
+      "total_installments": total_de_parcelas_ou_null
     }
   ],
 
-  "legal_notices": ["lista de avisos legais importantes encontrados"],
-  "tariff_notes": ["notas sobre tarifas ou reajustes mencionados"],
+  "billing_table_items": [
+    {
+      "description": "NOME EXATO da linha como aparece na tabela DESCRIÇÃO DO FATURAMENTO (ex: 'Energia Consumida Faturada TE', 'Energia Ativa Fornecida TE', 'Energia Atv Inj TE mUC', 'Energia Atv Inj TUSD mUC', 'Custo de Disponibilidade', etc)",
+      "quantity_kwh": quantidade_em_kWh_ou_null,
+      "unit_price": preco_unitario_R$_por_kWh_ou_null,
+      "total_value": valor_total_R$_positivo_ou_negativo,
+      "icms_base": base_de_calculo_ICMS_R$_ou_null,
+      "icms_rate": aliquota_ICMS_percentual_ou_null,
+      "icms_value": valor_ICMS_R$_ou_null,
+      "is_credit": true_se_valor_negativo_false_se_positivo
+    }
+  ],
 
-  "extraction_confidence": confiança geral da extração (0-100),
-  "fields_not_found": ["lista de campos que não foram encontrados na conta"]
+  "scee_injected_kwh": energia_injetada_HFP_no_mes_kWh,
+  "scee_used_kwh": saldo_utilizado_no_mes_kWh,
+  "scee_balance_kwh": saldo_atualizado_kWh,
+  "scee_expiring_kwh": creditos_a_expirar_proximo_mes_kWh,
+
+  "tariff_period": "período da bandeira tarifária (ex: 'Verde: 07/01 - 04/02')",
+  "reading_period_from": "data_inicio_leitura DD/MM/AAAA",
+  "reading_period_to": "data_fim_leitura DD/MM/AAAA",
+
+  "legal_notices": ["lista de avisos legais importantes — inclua informações sobre canal GD, ANEEL, SCEE"],
+  "tariff_notes": ["notas sobre tarifas, reajustes, Ajuste SINIEF, CONFAZ"],
+
+  "extraction_confidence": confiança_0_a_100,
+  "fields_not_found": ["campos não encontrados"]
 }
+
+INSTRUÇÕES ESPECIAIS PARA ENEL CEARÁ e distribuidoras similares:
+- A seção de cobranças extras pode aparecer como: "OUTROS PRODUTOS E SERVIÇOS", "SERVIÇOS COBRADOS", linhas com código telefônico 0800
+- Parcelamentos aparecem como: "Parcelamento Normal X/Y" onde X é parcela atual e Y é total
+- Seguros aparecem como: "COB SEGURO...", "SEGURO..."
+- Doações aparecem como: "DOACAO...", "CONTRIBUIÇÃO..."
+- O resumo SCEE aparece no rodapé: "Energia Injetada HFP no mês", "Saldo utilizado no mês", "Saldo atualizado", "Créditos a Expirar"
+- A tabela de faturamento tem colunas: Descrição, Unid., Quant., Preço unit., Valor, Base Calc., Alíq.ICMS%, ICMS, Tarifa sem ICMS
+- Items de crédito (compensação solar) têm valores NEGATIVOS — mantenha o sinal negativo em total_value
 
 REGRAS CRÍTICAS:
 1. Retorne APENAS o JSON, sem markdown, sem explicações, sem \`\`\`
@@ -1298,6 +1381,17 @@ serve(async (req) => {
         ...(rawData.service_items || []).map(i => ({ ...i, type: "service" })),
         ...(rawData.installment_items || []).map(i => ({ ...i, type: "installment" })),
       ],
+      other_charges: rawData.other_charges ?? null,
+      billing_items: rawData.billing_table_items ?? [],
+      credit_summary: {
+        injected_kwh: rawData.scee_injected_kwh ?? null,
+        used_kwh: rawData.scee_used_kwh ?? null,
+        balance_kwh: rawData.scee_balance_kwh ?? null,
+        expiring_kwh: rawData.scee_expiring_kwh ?? null,
+      },
+      tariff_period: rawData.tariff_period ?? null,
+      reading_period_from: rawData.reading_period_from ?? null,
+      reading_period_to: rawData.reading_period_to ?? null,
 
       real_consumption_kwh: realConsumption,
       generation_efficiency: generationEfficiency,

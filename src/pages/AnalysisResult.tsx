@@ -51,6 +51,24 @@ interface ExtraCharge {
   remaining_installments?: number;
 }
 
+interface BillingItem {
+  description: string;
+  quantity_kwh?: number;
+  unit_price?: number;
+  total_value: number;
+  icms_base?: number;
+  icms_rate?: number;
+  icms_value?: number;
+  is_credit?: boolean;
+}
+
+interface CreditSummary {
+  injected_kwh?: number | null;
+  used_kwh?: number | null;
+  balance_kwh?: number | null;
+  expiring_kwh?: number | null;
+}
+
 interface BillAnalysis {
   id: string;
   property_id: string;
@@ -85,6 +103,12 @@ interface BillAnalysis {
   bill_score?: number | null;
   connection_type?: string | null;
   extra_charges?: ExtraCharge[] | null;
+  other_charges?: number | null;
+  billing_items?: BillingItem[] | null;
+  credit_summary?: CreditSummary | null;
+  tariff_period?: string | null;
+  reading_period_from?: string | null;
+  reading_period_to?: string | null;
 }
 
 interface ClarifierResult {
@@ -169,7 +193,9 @@ export default function AnalysisResult() {
   const calculateClarifierResult = useCallback((analysis: BillAnalysis): ClarifierResult => {
     const availabilityCost = toNumber(analysis.availability_cost, 0);
     const publicLightingCost = toNumber(analysis.public_lighting_cost, 0);
-    const extraChargesTotal = (analysis.extra_charges || []).reduce((sum, c) => sum + (c.value || 0), 0);
+    const extraChargesFromItems = (analysis.extra_charges || []).reduce((sum, c) => sum + (c.value || 0), 0);
+    // Use other_charges as fallback when extra_charges aren't individually itemized
+    const extraChargesTotal = extraChargesFromItems > 0 ? extraChargesFromItems : toNumber(analysis.other_charges, 0);
     // Minimum = availability (min kWh by connection type) + CIP + extra charges (services/installments)
     const minimumPossible = availabilityCost + publicLightingCost + extraChargesTotal;
     const totalPaid = toNumber(analysis.total_amount, 0);
@@ -643,29 +669,148 @@ export default function AnalysisResult() {
             <Collapsible open={showTechnicalData} onOpenChange={setShowTechnicalData}>
               <CollapsibleTrigger asChild>
                 <Button variant="ghost" className="w-full justify-between text-muted-foreground">
-                  <span className="text-xs font-medium uppercase tracking-wide">Dados Técnicos</span>
+                  <span className="text-xs font-medium uppercase tracking-wide">Dados Técnicos da Fatura</span>
                   {showTechnicalData ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent>
-                <div className="mt-2 p-4 rounded-xl bg-muted/30 border border-border">
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-                    {[
-                      { label: "Consumo faturado", value: `${analysis.billed_consumption_kwh?.toFixed(0) || "—"} kWh` },
-                      { label: "Eficiência solar", value: `${analysis.generation_efficiency?.toFixed(1) || "—"}%` },
-                      { label: "ICMS", value: `R$ ${analysis.icms_cost?.toFixed(2) || "0,00"}` },
-                      { label: "PIS/COFINS", value: `R$ ${analysis.pis_cofins_cost?.toFixed(2) || "0,00"}` },
-                      { label: "Tipo de ligação", value: analysis.connection_type ? analysis.connection_type.charAt(0).toUpperCase() + analysis.connection_type.slice(1) : "—" },
-                      { label: "Bandeira tarifária", value: analysis.tariff_flag || "Verde" },
-                      { label: "Multa / Juros", value: `R$ ${analysis.fine_amount?.toFixed(2) || "0,00"}` },
-                      { label: "Titular", value: analysis.account_holder || "—" },
-                    ].map(({ label, value }) => (
-                      <div key={label}>
-                        <p className="text-xs text-muted-foreground">{label}</p>
-                        <p className="font-medium text-foreground">{value}</p>
-                      </div>
-                    ))}
+                <div className="mt-2 space-y-4">
+
+                  {/* Basic grid */}
+                  <div className="p-4 rounded-xl bg-muted/30 border border-border">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Informações gerais</p>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                      {[
+                        { label: "Titular", value: analysis.account_holder || "—" },
+                        { label: "UC", value: analysis.account_number || "—" },
+                        { label: "Tipo de ligação", value: analysis.connection_type ? analysis.connection_type.charAt(0).toUpperCase() + analysis.connection_type.slice(1) : "—" },
+                        { label: "Classe", value: "B1 Residencial" },
+                        { label: "Bandeira tarifária", value: analysis.tariff_flag || "Verde" },
+                        { label: "Multa / Juros", value: `R$ ${analysis.fine_amount?.toFixed(2) || "0,00"}` },
+                        ...(analysis.tariff_period ? [{ label: "Período da bandeira", value: analysis.tariff_period }] : []),
+                        ...(analysis.reading_period_from && analysis.reading_period_to ? [{
+                          label: "Período de leitura",
+                          value: `${new Date(analysis.reading_period_from + "T12:00:00").toLocaleDateString("pt-BR")} – ${new Date(analysis.reading_period_to + "T12:00:00").toLocaleDateString("pt-BR")}`
+                        }] : []),
+                      ].map(({ label, value }) => (
+                        <div key={label}>
+                          <p className="text-xs text-muted-foreground">{label}</p>
+                          <p className="font-medium text-foreground">{value}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* B1 RESIDENCIAL explanation */}
+                    <div className="mt-4 pt-3 border-t border-border/50">
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-semibold text-foreground">O que é B1 Residencial?</span>{" "}
+                        É a classificação tarifária da ANEEL para consumidores domésticos (Grupo B, Subgrupo B1).
+                        Determina as tarifas de TE e TUSD aplicadas à sua conta, revisadas anualmente pela distribuidora.
+                      </p>
+                    </div>
                   </div>
+
+                  {/* SCEE Credit Summary */}
+                  {analysis.credit_summary && (
+                    <div className="p-4 rounded-xl bg-primary/5 border border-primary/20">
+                      <p className="text-xs font-semibold text-primary uppercase tracking-wide mb-3">Saldo SCEE — Sistema de Compensação</p>
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                        {[
+                          { label: "Injetado na rede", value: analysis.credit_summary.injected_kwh != null ? `${analysis.credit_summary.injected_kwh.toLocaleString("pt-BR")} kWh` : "—" },
+                          { label: "Utilizado nesta UC", value: analysis.credit_summary.used_kwh != null ? `${analysis.credit_summary.used_kwh.toLocaleString("pt-BR")} kWh` : "—" },
+                          { label: "Saldo acumulado", value: analysis.credit_summary.balance_kwh != null ? `${analysis.credit_summary.balance_kwh.toLocaleString("pt-BR")} kWh` : "—" },
+                          { label: "A expirar (60 meses)", value: analysis.credit_summary.expiring_kwh != null ? `${analysis.credit_summary.expiring_kwh.toLocaleString("pt-BR")} kWh` : "—" },
+                        ].map(({ label, value }) => (
+                          <div key={label}>
+                            <p className="text-xs text-muted-foreground">{label}</p>
+                            <p className="font-medium text-foreground">{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-3 pt-3 border-t border-border/50">
+                        O SCEE permite que a energia excedente gerada pelo seu sistema solar seja injetada na rede e
+                        creditada para abater consumo futuro. Os créditos expiram após 60 meses. Quando injetado {">"} utilizado
+                        nesta UC, o excedente fica como saldo ou é distribuído a outras unidades vinculadas.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Billing Table with Glossary */}
+                  {analysis.billing_items && analysis.billing_items.length > 0 && (
+                    <div className="p-4 rounded-xl bg-muted/30 border border-border">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Tabela de faturamento linha a linha</p>
+                      <div className="space-y-2">
+                        {analysis.billing_items.map((item, idx) => {
+                          const glossary: Record<string, string> = {
+                            "TE": "Tarifa de Energia — remunera geração e transmissão da energia elétrica.",
+                            "TUSD": "Tarifa de Uso do Sistema de Distribuição — remunera o transporte até sua casa.",
+                            "INJ": "Crédito SCEE — energia solar injetada na rede abatida desta fatura.",
+                            "INJETAD": "Crédito SCEE — energia solar injetada na rede abatida desta fatura.",
+                            "DISPON": "Custo mínimo de disponibilidade — cobrado mesmo sem consumo pelo acesso à rede.",
+                            "ILUMINAÇÃO": "CIP/COSIP — contribuição municipal obrigatória para iluminação pública.",
+                            "CIP": "CIP/COSIP — contribuição municipal obrigatória para iluminação pública.",
+                            "ICMS": "Imposto estadual incluso na base de cálculo das tarifas.",
+                            "BANDEIRA": "Adicional tarifário vigente conforme disponibilidade hídrica do sistema.",
+                            "MULTA": "Juros e multa por atraso no pagamento.",
+                          };
+                          const upperDesc = item.description.toUpperCase();
+                          const tip = Object.entries(glossary).find(([k]) => upperDesc.includes(k))?.[1];
+                          const fmt = (n?: number | null) => n != null ? n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+                          return (
+                            <div key={idx} className={`rounded-lg p-3 border ${item.is_credit ? "bg-emerald-500/5 border-emerald-500/20" : "bg-card border-border"}`}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-sm font-medium truncate ${item.is_credit ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}>
+                                    {item.is_credit ? "↩ " : ""}{item.description}
+                                  </p>
+                                  {tip && <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{tip}</p>}
+                                  {(item.quantity_kwh != null || item.unit_price != null) && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      {item.quantity_kwh != null ? `${item.quantity_kwh.toLocaleString("pt-BR")} kWh` : ""}
+                                      {item.quantity_kwh != null && item.unit_price != null ? " × " : ""}
+                                      {item.unit_price != null ? `R$ ${fmt(item.unit_price)}/kWh` : ""}
+                                    </p>
+                                  )}
+                                </div>
+                                <p className={`text-sm font-semibold shrink-0 ${item.is_credit ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}>
+                                  {item.is_credit ? "−" : ""}R$ {fmt(item.total_value)}
+                                </p>
+                              </div>
+                              {item.icms_value != null && item.icms_value > 0 && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  ICMS {item.icms_rate != null ? `${item.icms_rate}%` : ""}: R$ {fmt(item.icms_value)}
+                                  {item.icms_base != null ? ` (base R$ ${fmt(item.icms_base)})` : ""}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-3 pt-3 border-t border-border/50">
+                        💡 O CONFAZ/SINIEF permite que as distribuidoras apresentem a fatura com ICMS já embutido nas
+                        tarifas, por isso o imposto aparece detalhado por linha, não como item separado.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Taxes & efficiency */}
+                  <div className="p-4 rounded-xl bg-muted/30 border border-border">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Tributos e eficiência</p>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                      {[
+                        { label: "Consumo faturado", value: `${analysis.billed_consumption_kwh?.toFixed(0) || "—"} kWh` },
+                        { label: "Eficiência solar", value: `${analysis.generation_efficiency?.toFixed(1) || "—"}%` },
+                        { label: "ICMS", value: `R$ ${analysis.icms_cost?.toFixed(2) || "0,00"}` },
+                        { label: "PIS/COFINS", value: `R$ ${analysis.pis_cofins_cost?.toFixed(2) || "0,00"}` },
+                      ].map(({ label, value }) => (
+                        <div key={label}>
+                          <p className="text-xs text-muted-foreground">{label}</p>
+                          <p className="font-medium text-foreground">{value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                 </div>
               </CollapsibleContent>
             </Collapsible>
