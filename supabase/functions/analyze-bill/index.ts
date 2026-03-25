@@ -778,7 +778,8 @@ async function performSpecialistAnalysis(
   rawData: RawBillData,
   monitoredGeneration: number,
   expectedGeneration: number,
-  openaiApiKey: string
+  lovableApiKey: string,
+  openaiApiKey?: string
 ): Promise<SpecialistAnalysis> {
   
   const realConsumption = (rawData.measured_consumption_kwh || 0) + (rawData.compensated_energy_kwh || 0);
@@ -893,41 +894,81 @@ REGRAS:
 
   console.log("🧠 ETAPA 2: Iniciando análise especialista...");
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${openaiApiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: analystPrompt },
-        { role: "user", content: "Analise estes dados e gere o relatório completo:" },
-      ],
-      max_tokens: 4000,
-      temperature: 0.7,
-    }),
-  });
+  const messages = [
+    { role: "system", content: analystPrompt },
+    { role: "user", content: "Analise estes dados e gere o relatório completo:" },
+  ];
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("OpenAI analysis error:", errorText);
-    throw new Error(`OpenAI analysis error: ${response.status}`);
+  let responseContent = "";
+  let providerUsed = "gemini";
+
+  // Try Gemini first via Lovable AI Gateway
+  try {
+    console.log("🚀 Specialist analysis: trying Gemini...");
+    const geminiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${lovableApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages,
+        max_tokens: 6000,
+        temperature: 0.7,
+      }),
+    });
+
+    if (!geminiResponse.ok) {
+      const errorText = await geminiResponse.text();
+      console.warn("⚠️ Gemini specialist failed:", geminiResponse.status, errorText);
+      throw new Error(`Gemini error: ${geminiResponse.status}`);
+    }
+
+    const geminiData = await geminiResponse.json();
+    responseContent = geminiData.choices?.[0]?.message?.content || "{}";
+    console.log("✅ Specialist analysis completed with Gemini");
+  } catch (geminiError) {
+    console.warn("⚠️ Gemini specialist failed, trying OpenAI fallback...", geminiError);
+    providerUsed = "openai";
+
+    if (!openaiApiKey) {
+      throw new Error("Análise especialista indisponível. Tente novamente.");
+    }
+
+    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${openaiApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages,
+        max_tokens: 4000,
+        temperature: 0.7,
+      }),
+    });
+
+    if (!openaiResponse.ok) {
+      const errorText = await openaiResponse.text();
+      console.error("❌ OpenAI specialist also failed:", errorText);
+      throw new Error(`Análise especialista falhou: ${openaiResponse.status}`);
+    }
+
+    const openaiData = await openaiResponse.json();
+    responseContent = openaiData.choices?.[0]?.message?.content || "{}";
+    console.log("✅ Specialist analysis completed with OpenAI fallback");
   }
 
-  const data = await response.json();
-  const content = data.choices[0]?.message?.content || "{}";
-
-  console.log("📊 Análise especialista response length:", content.length);
+  console.log(`📊 Análise especialista (${providerUsed}) response length:`, responseContent.length);
 
   let analysis: SpecialistAnalysis;
   try {
-    const cleanedContent = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const cleanedContent = responseContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     analysis = JSON.parse(cleanedContent);
   } catch (parseError) {
     console.error("Failed to parse analysis response:", parseError);
-    // Fallback com estrutura mínima
     analysis = {
       executive_summary: "Não foi possível gerar a análise completa. Por favor, tente novamente.",
       explanations: {},
@@ -1100,7 +1141,7 @@ serve(async (req) => {
     // ============================================================
     // ETAPA 2: ANÁLISE ESPECIALISTA
     // ============================================================
-    const specialistAnalysis = await performSpecialistAnalysis(rawData, monitoredGeneration, expectedGeneration, openaiKey || lovableKey);
+    const specialistAnalysis = await performSpecialistAnalysis(rawData, monitoredGeneration, expectedGeneration, lovableKey, openaiKey);
 
     // ============================================================
     // SALVAR NO BANCO DE DADOS
