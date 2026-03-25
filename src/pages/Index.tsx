@@ -1,8 +1,9 @@
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Zap, Loader2, RotateCcw, Lock, Eye, EyeOff } from "lucide-react";
-import soloLogo from "@/assets/solo-logo.png";
 import { Button } from "@/components/ui/button";
+import { SoloLogo } from "@/components/SoloLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Input } from "@/components/ui/input";
 import { BillUpload } from "@/components/BillUpload";
 import { SolarInput } from "@/components/SolarInput";
@@ -267,12 +268,15 @@ export default function Index() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="solo-header-bar border-b border-border bg-[#141414]/95 backdrop-blur-sm sticky top-0 z-50">
+      <header className="solo-header-bar border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-50">
         <div className="container flex h-16 items-center justify-between">
-          <img src={soloLogo} alt="Solo Energia" className="h-8 w-auto" />
-          <Button variant="gradient" size="sm" onClick={() => (window.location.href = "/auth")}>
-            Entrar
-          </Button>
+          <SoloLogo className="h-8 w-auto" />
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Button variant="gradient" size="sm" onClick={() => (window.location.href = "/auth")}>
+              Entrar
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -474,7 +478,7 @@ export default function Index() {
       {/* Footer */}
       <footer className="border-t border-border bg-card py-6">
         <div className="container text-center">
-          <img src={soloLogo} alt="Solo Energia" className="mx-auto h-6 w-auto opacity-60" />
+          <SoloLogo className="mx-auto h-6 w-auto opacity-60" />
           <p className="mt-2 text-xs text-muted-foreground">© 2025 Solo Energia. Você no controle da sua energia.</p>
         </div>
       </footer>

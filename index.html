@@ -31,6 +31,18 @@
 
   <body>
     <div id="root"></div>
+    <!-- Anti-FOUC: apply theme before first paint -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("solo-theme");
+          var theme = t === "light" ? "light" : "dark";
+          document.documentElement.classList.add(theme);
+        } catch (e) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

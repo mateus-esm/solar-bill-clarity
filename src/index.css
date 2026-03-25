@@ -42,64 +42,61 @@
 ───────────────────────────────────────────────────────── */
 
 @layer base {
+  /* ── SHARED brand tokens (theme-independent) ───────── */
   :root {
-    /* ── Background surfaces ─── */
-    --background:        0 0% 8%;       /* #141414 */
-    --foreground:        47 10% 88%;    /* #E3E2DD cream */
-
-    --card:              0 0% 10%;      /* #1A1A1A panel */
-    --card-foreground:   47 10% 88%;
-
-    --popover:           0 0% 11%;
-    --popover-foreground: 47 10% 88%;
-
-    /* ── Brand accent ─── */
-    --primary:           11 100% 56%;   /* #FF481E */
-    --primary-foreground: 0 0% 100%;
-
-    /* ── Secondary (deep crimson) ─── */
-    --secondary:         8 73% 36%;     /* #9E2A19 */
-    --secondary-foreground: 47 10% 88%;
-
-    /* ── Neutrals ─── */
-    --muted:             0 0% 13%;      /* #212121 */
-    --muted-foreground:  47 6% 55%;     /* warm medium gray */
-
-    --accent:            11 100% 56%;
-    --accent-foreground: 0 0% 100%;
-
-    /* ── Semantic ─── */
-    --destructive:       0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-
-    /* ── Structure ─── */
-    --border:            0 0% 16%;      /* #292929 hairline */
-    --input:             0 0% 16%;
-    --ring:              11 100% 56%;
-
-    /* ── Precision radius (anguloso, Tesla-like) ─── */
     --radius:            0.25rem;       /* 4px — sharp precision */
 
-    /* ── Solo brand tokens ─── */
     --solo-orange:       11 100% 56%;   /* #FF481E */
     --solo-crimson:      8 73% 36%;     /* #9E2A19 */
     --solo-yellow:       46 100% 50%;   /* #FFC200 */
     --solo-dark:         0 0% 8%;       /* #141414 */
     --solo-cream:        47 10% 88%;    /* #E3E2DD */
 
-    /* ── Gradients ─── */
-    --solo-gradient:         linear-gradient(135deg, #FF481E 0%, #FFC200 100%);
-    --solo-gradient-subtle:  linear-gradient(135deg, rgb(255 72 30 / 0.12) 0%, rgb(255 194 0 / 0.08) 100%);
-    --solo-gradient-border:  linear-gradient(135deg, #FF481E 0%, #FFC200 100%);
+    --solo-gradient:          linear-gradient(135deg, #FF481E 0%, #FFC200 100%);
+    --solo-gradient-subtle:   linear-gradient(135deg, rgb(255 72 30 / 0.12) 0%, rgb(255 194 0 / 0.08) 100%);
+    --solo-gradient-border:   linear-gradient(135deg, #FF481E 0%, #FFC200 100%);
     --solo-gradient-vertical: linear-gradient(180deg, #FF481E 0%, #FFC200 100%);
 
-    /* ── Shadows (minimal, precision-focused) ─── */
-    --shadow-sm:   0 1px 0 0 rgb(0 0 0 / 0.4);
-    --shadow-md:   0 2px 8px 0 rgb(0 0 0 / 0.5);
-    --shadow-glow: 0 0 32px -8px rgb(255 72 30 / 0.5);
+    --shadow-glow:    0 0 32px -8px rgb(255 72 30 / 0.5);
     --shadow-glow-sm: 0 0 16px -4px rgb(255 72 30 / 0.35);
 
-    /* ── Sidebar ─── */
+    /* Primary always orange */
+    --primary:           11 100% 56%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary:         8 73% 36%;
+    --secondary-foreground: 47 10% 88%;
+
+    --accent:            11 100% 56%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive:       0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --ring: 11 100% 56%;
+  }
+
+  /* ── DARK MODE (default — Tesla/Sunrun premium) ─────── */
+  :root,
+  .dark {
+    --background:        0 0% 8%;       /* #141414 */
+    --foreground:        47 10% 88%;    /* #E3E2DD cream */
+
+    --card:              0 0% 10%;      /* #1A1A1A */
+    --card-foreground:   47 10% 88%;
+
+    --popover:           0 0% 11%;
+    --popover-foreground: 47 10% 88%;
+
+    --muted:             0 0% 13%;      /* #212121 */
+    --muted-foreground:  47 6% 55%;
+
+    --border:            0 0% 16%;      /* #292929 */
+    --input:             0 0% 16%;
+
+    --shadow-sm: 0 1px 0 0 rgb(0 0 0 / 0.4);
+    --shadow-md: 0 2px 8px 0 rgb(0 0 0 / 0.5);
+
     --sidebar-background:           0 0% 8%;
     --sidebar-foreground:           47 10% 88%;
     --sidebar-primary:              11 100% 56%;
@@ -110,16 +107,34 @@
     --sidebar-ring:                 11 100% 56%;
   }
 
-  /* Light mode override (kept minimal, dark is default) */
+  /* ── LIGHT MODE (warm cream — brand creatives aesthetic) */
   .light {
-    --background:        47 20% 96%;
-    --foreground:        0 0% 8%;
-    --card:              0 0% 100%;
+    --background:        50 18% 94%;    /* #F0EEE8 warm cream */
+    --foreground:        0 0% 8%;       /* #141414 */
+
+    --card:              0 0% 100%;     /* #FFFFFF */
     --card-foreground:   0 0% 8%;
-    --muted:             47 10% 93%;
-    --muted-foreground:  0 0% 40%;
-    --border:            47 8% 88%;
-    --input:             47 8% 88%;
+
+    --popover:           0 0% 100%;
+    --popover-foreground: 0 0% 8%;
+
+    --muted:             47 12% 90%;    /* #E8E7E1 */
+    --muted-foreground:  47 4% 42%;     /* #6E6D68 */
+
+    --border:            47 8% 84%;     /* #D9D8D2 */
+    --input:             47 8% 84%;
+
+    --shadow-sm: 0 1px 0 0 rgb(0 0 0 / 0.08);
+    --shadow-md: 0 2px 8px 0 rgb(0 0 0 / 0.10);
+
+    --sidebar-background:           50 18% 94%;
+    --sidebar-foreground:           0 0% 8%;
+    --sidebar-primary:              11 100% 56%;
+    --sidebar-primary-foreground:   0 0% 100%;
+    --sidebar-accent:               47 12% 90%;
+    --sidebar-accent-foreground:    0 0% 8%;
+    --sidebar-border:               47 8% 84%;
+    --sidebar-ring:                 11 100% 56%;
   }
 }
 

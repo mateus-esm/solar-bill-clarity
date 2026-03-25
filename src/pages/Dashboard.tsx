@@ -12,8 +12,9 @@ import {
   LogOut,
   Settings
 } from "lucide-react";
-import soloLogo from "@/assets/solo-logo.png";
 import { Button } from "@/components/ui/button";
+import { SoloLogo } from "@/components/SoloLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
@@ -98,10 +99,11 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="solo-header-bar border-b border-border bg-[#141414]/95 backdrop-blur-sm sticky top-0 z-50">
+      <header className="solo-header-bar border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-50">
         <div className="container flex h-16 items-center justify-between">
-          <img src={soloLogo} alt="Solo Energia" className="h-8 w-auto" />
-          <div className="flex items-center gap-4">
+          <SoloLogo className="h-8 w-auto" />
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
             <Button variant="ghost" size="icon">
               <Settings className="h-5 w-5" />
             </Button>

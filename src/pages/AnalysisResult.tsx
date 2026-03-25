@@ -13,8 +13,9 @@ import {
   ChevronUp,
   Trash2
 } from "lucide-react";
-import soloLogo from "@/assets/solo-logo.png";
 import { Button } from "@/components/ui/button";
+import { SoloLogo } from "@/components/SoloLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { db } from "@/integrations/supabase/clientUntyped";
@@ -395,18 +396,19 @@ export default function AnalysisResult() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="solo-header-bar border-b border-border bg-[#141414]/95 backdrop-blur-sm sticky top-0 z-50">
+      <header className="solo-header-bar border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-50">
         <div className="container flex h-16 items-center justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={() => navigate(`/property/${id}`)}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <img src={soloLogo} alt="Solo Energia" className="h-8 w-auto" />
+            <SoloLogo className="h-8 w-auto" />
           </div>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             {signedBillUrl && (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={() => window.open(signedBillUrl, "_blank")}
               >

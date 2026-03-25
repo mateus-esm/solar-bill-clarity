@@ -14,8 +14,9 @@ import {
   Eye,
   EyeOff
 } from "lucide-react";
-import soloLogo from "@/assets/solo-logo.png";
 import { Button } from "@/components/ui/button";
+import { SoloLogo } from "@/components/SoloLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
@@ -349,12 +350,15 @@ export default function BillAnalyze() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="solo-header-bar border-b border-border bg-[#141414]/95 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container flex h-16 items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate(`/property/${id}`)}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <img src={soloLogo} alt="Solo Energia" className="h-8 w-auto" />
+      <header className="solo-header-bar border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-50">
+        <div className="container flex h-16 items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => navigate(`/property/${id}`)}>
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <SoloLogo className="h-8 w-auto" />
+          </div>
+          <ThemeToggle />
         </div>
       </header>
 

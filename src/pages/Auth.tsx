@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { z } from "zod";
 import { Mail, Lock, User, Loader2, Sun, ArrowRight } from "lucide-react";
-import soloLogo from "@/assets/solo-logo.png";
 import { Button } from "@/components/ui/button";
+import { SoloLogo } from "@/components/SoloLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
@@ -143,7 +144,10 @@ export default function Auth() {
           className="w-full max-w-md"
         >
           <div className="mb-8">
-            <img src={soloLogo} alt="Solo Energia" className="h-10 w-auto mb-6" />
+            <div className="flex items-center justify-between mb-6">
+              <SoloLogo className="h-10 w-auto" />
+              <ThemeToggle />
+            </div>
             <h1 className="text-3xl font-bold text-foreground">
               {isLogin ? "Bem-vindo de volta" : "Crie sua conta"}
             </h1>
@@ -269,10 +273,10 @@ export default function Auth() {
         </motion.div>
       </div>
 
-      {/* Right side — Solo brand panel */}
+      {/* Right side — Solo brand panel (always dark, brand signature) */}
       <div
         className="hidden lg:flex flex-1 relative items-center justify-center p-12 overflow-hidden"
-        style={{ background: "#141414" }}
+        style={{ background: "#141414" }}  /* Always dark — brand panel */
       >
         {/* Decorative grid */}
         <div className="absolute inset-0 solo-grid-bg opacity-30 pointer-events-none" />
