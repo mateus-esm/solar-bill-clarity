@@ -159,7 +159,7 @@ export default function PropertyDetail() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
+      <header className="solo-header-bar border-b border-border bg-[#141414]/95 backdrop-blur-sm sticky top-0 z-50">
         <div className="container flex h-16 items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard")}>
             <ArrowLeft className="h-5 w-5" />

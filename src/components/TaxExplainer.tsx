@@ -70,7 +70,7 @@ export function TaxExplainer({ taxes }: TaxExplainerProps) {
         {taxes.map((tax) => (
           <div
             key={tax.id}
-            className="bg-card rounded-xl border border-border overflow-hidden"
+            className="bg-card rounded border border-border overflow-hidden"
           >
             <button
               onClick={() => setExpandedId(expandedId === tax.id ? null : tax.id)}

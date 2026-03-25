@@ -32,7 +32,7 @@ export function ChatMessage({ role, content, isStreaming }: ChatMessageProps) {
       {/* Message bubble */}
       <div
         className={cn(
-          "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+          "max-w-[80%] rounded-lg px-4 py-2.5 text-sm leading-relaxed",
           isUser
             ? "bg-primary text-primary-foreground rounded-tr-sm"
             : "bg-muted text-foreground rounded-tl-sm"

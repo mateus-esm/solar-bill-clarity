@@ -269,44 +269,83 @@ export default function Auth() {
         </motion.div>
       </div>
 
-      {/* Right side - Hero */}
-      <div className="hidden lg:flex flex-1 gradient-bg items-center justify-center p-12">
+      {/* Right side — Solo brand panel */}
+      <div
+        className="hidden lg:flex flex-1 relative items-center justify-center p-12 overflow-hidden"
+        style={{ background: "#141414" }}
+      >
+        {/* Decorative grid */}
+        <div className="absolute inset-0 solo-grid-bg opacity-30 pointer-events-none" />
+
+        {/* Gradient bar top */}
+        <div
+          className="absolute top-0 left-0 right-0 h-px opacity-60"
+          style={{ background: "linear-gradient(90deg, transparent, #FF481E, #FFC200, transparent)" }}
+        />
+
+        {/* Big decorative symbol — faint */}
+        <div
+          className="absolute right-[-40px] bottom-[-40px] w-80 h-80 opacity-[0.04] pointer-events-none"
+          style={{
+            backgroundImage: `url('/src/assets/solo-symbol.png')`,
+            backgroundSize: "contain",
+            backgroundRepeat: "no-repeat",
+          }}
+        />
+
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
-          className="text-white max-w-md"
+          className="relative max-w-md"
         >
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-white/20 px-4 py-2">
-            <Sun className="h-5 w-5" />
-            <span className="font-medium">Solo Bill Analyzer</span>
+          {/* Kicker */}
+          <div
+            className="mb-6 inline-flex items-center gap-2 px-3 py-1.5 border"
+            style={{
+              borderRadius: "var(--radius)",
+              borderColor: "rgb(255 72 30 / 0.3)",
+              background: "rgb(255 72 30 / 0.08)",
+            }}
+          >
+            <Sun className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium text-primary">Solo Bill Analyzer</span>
           </div>
-          <h2 className="text-4xl font-bold mb-4">
-            Controle total da sua energia solar
+
+          <h2 className="text-4xl font-bold text-[#E3E2DD] mb-4 leading-tight tracking-tight">
+            Você no controle<br />
+            <span className="gradient-text">da sua energia</span>
           </h2>
-          <p className="text-lg text-white/80 mb-8">
-            Monitore sua geração, analise suas contas automaticamente e acompanhe
-            sua economia mês a mês com inteligência artificial.
+
+          <p className="text-base text-[#8A8880] mb-8 leading-relaxed">
+            Monitore sua geração solar, analise contas automaticamente com IA
+            e acompanhe sua economia mês a mês.
           </p>
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center">
-                <span className="text-lg">📊</span>
+
+          {/* Feature rows — engineering precision style */}
+          <div
+            className="space-y-0 border border-border overflow-hidden"
+            style={{ borderRadius: "var(--radius)" }}
+          >
+            {[
+              { icon: "📊", text: "Análise automática de contas com IA" },
+              { icon: "⚡", text: "Monitoramento de geração em tempo real" },
+              { icon: "💰", text: "Cálculo de economia e retorno do investimento" },
+            ].map((item, i, arr) => (
+              <div
+                key={i}
+                className={`flex items-center gap-3 px-4 py-3 ${i < arr.length - 1 ? "border-b border-border" : ""}`}
+                style={{ background: "rgb(255 255 255 / 0.02)" }}
+              >
+                <span className="text-base shrink-0">{item.icon}</span>
+                <span className="text-sm text-[#A0A09A]">{item.text}</span>
               </div>
-              <span>Análise automática de contas com IA</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center">
-                <span className="text-lg">⚡</span>
-              </div>
-              <span>Monitoramento de geração em tempo real</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center">
-                <span className="text-lg">💰</span>
-              </div>
-              <span>Cálculo de economia e payback</span>
-            </div>
+            ))}
           </div>
+
+          {/* Bottom tagline */}
+          <p className="mt-8 text-xs text-[#555550] tracking-wide uppercase">
+            Solo Energia · Precisão em engenharia solar
+          </p>
         </motion.div>
       </div>
     </div>

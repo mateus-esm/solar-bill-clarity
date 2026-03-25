@@ -52,7 +52,7 @@ export function SolarHealthGauge({
       </div>
 
       {/* Main Gauge */}
-      <div className={`p-6 rounded-2xl bg-gradient-to-br ${getEfficiencyBg(efficiency)}`}>
+      <div className={`p-6 rounded-lg bg-gradient-to-br ${getEfficiencyBg(efficiency)}`}>
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-sm text-muted-foreground">Eficiência do Sistema</p>
@@ -121,7 +121,7 @@ export function SolarHealthGauge({
 
       {/* Metrics Grid */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="p-4 bg-card border border-border rounded-xl">
+        <div className="p-4 bg-card border border-border rounded">
           <div className="flex items-center gap-2 mb-2">
             <Zap className="h-4 w-4 text-yellow-500" />
             <span className="text-xs text-muted-foreground">Geração Total</span>
@@ -131,7 +131,7 @@ export function SolarHealthGauge({
           </p>
         </div>
 
-        <div className="p-4 bg-card border border-border rounded-xl">
+        <div className="p-4 bg-card border border-border rounded">
           <div className="flex items-center gap-2 mb-2">
             <Sun className="h-4 w-4 text-orange-500" />
             <span className="text-xs text-muted-foreground">Injetada na Rede</span>
@@ -141,7 +141,7 @@ export function SolarHealthGauge({
           </p>
         </div>
 
-        <div className="p-4 bg-card border border-border rounded-xl">
+        <div className="p-4 bg-card border border-border rounded">
           <div className="flex items-center gap-2 mb-2">
             <Battery className="h-4 w-4 text-green-500" />
             <span className="text-xs text-muted-foreground">Autoconsumo</span>
@@ -151,7 +151,7 @@ export function SolarHealthGauge({
           </p>
         </div>
 
-        <div className="p-4 bg-card border border-border rounded-xl">
+        <div className="p-4 bg-card border border-border rounded">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="h-4 w-4 text-primary" />
             <span className="text-xs text-muted-foreground">Taxa Autoconsumo</span>

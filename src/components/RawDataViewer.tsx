@@ -98,7 +98,7 @@ export function RawDataViewer({ data, title = "Dados Brutos Extraídos" }: RawDa
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-card rounded-xl border border-border overflow-hidden"
+      className="bg-card rounded border border-border overflow-hidden"
     >
       <button
         onClick={() => setIsExpanded(!isExpanded)}

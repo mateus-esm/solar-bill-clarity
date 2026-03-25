@@ -395,7 +395,7 @@ export default function AnalysisResult() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
+      <header className="solo-header-bar border-b border-border bg-[#141414]/95 backdrop-blur-sm sticky top-0 z-50">
         <div className="container flex h-16 items-center justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={() => navigate(`/property/${id}`)}>
@@ -483,7 +483,7 @@ export default function AnalysisResult() {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="rounded-2xl border border-border bg-gradient-to-br from-card via-card to-primary/5 p-5 space-y-5"
+              className="rounded-lg border border-border bg-gradient-to-br from-card via-card to-primary/5 p-5 space-y-5"
             >
               {/* Title row */}
               <div>
@@ -501,13 +501,13 @@ export default function AnalysisResult() {
                   <BillScoreGauge score={analysis.bill_score} size="lg" />
                 )}
                 <div className="flex-1 space-y-3">
-                  <div className="p-3 rounded-xl bg-muted/50 border border-border">
+                  <div className="p-3 rounded bg-muted/50 border border-border">
                     <p className="text-xs text-muted-foreground">Você pagou</p>
                     <p className="text-2xl font-bold text-foreground">
                       {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(clarifier.totalPaid)}
                     </p>
                   </div>
-                  <div className="p-3 rounded-xl bg-primary/8 border border-primary/20">
+                  <div className="p-3 rounded bg-primary/8 border border-primary/20">
                     <p className="text-xs text-muted-foreground">Mínimo obrigatório
                       {analysis.connection_type && (
                         <span className="ml-1 capitalize">({analysis.connection_type})</span>
@@ -522,7 +522,7 @@ export default function AnalysisResult() {
 
               {/* Solar savings highlight */}
               {clarifier.totalPaid > clarifier.minimumPossible && (
-                <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 flex items-center gap-3">
+                <div className="rounded bg-amber-500/10 border border-amber-500/20 p-3 flex items-center gap-3">
                   <span className="text-2xl">☀️</span>
                   <div>
                     <p className="text-sm font-semibold text-foreground">
@@ -581,7 +581,7 @@ export default function AnalysisResult() {
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.25 }}
-                className="rounded-2xl border border-primary/20 overflow-hidden"
+                className="rounded-lg border border-primary/20 overflow-hidden"
               >
                 <div className="gradient-bg px-5 py-3 flex items-center gap-2">
                   <span className="text-lg">🤖</span>
@@ -611,7 +611,7 @@ export default function AnalysisResult() {
                   return (
                     <div
                       key={index}
-                      className={`flex items-start gap-3 p-3 rounded-xl border text-sm ${
+                      className={`flex items-start gap-3 p-3 rounded border text-sm ${
                         isSuccess
                           ? "bg-emerald-500/8 border-emerald-500/20 text-emerald-700 dark:text-emerald-300"
                           : isError
@@ -646,7 +646,7 @@ export default function AnalysisResult() {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.32 }}
-              className="rounded-2xl border border-border bg-card p-5 text-center space-y-3"
+              className="rounded-lg border border-border bg-card p-5 text-center space-y-3"
             >
               <p className="text-base font-semibold text-foreground">Ficou com dúvida?</p>
               <p className="text-sm text-muted-foreground">
@@ -677,7 +677,7 @@ export default function AnalysisResult() {
                 <div className="mt-2 space-y-4">
 
                   {/* Basic grid */}
-                  <div className="p-4 rounded-xl bg-muted/30 border border-border">
+                  <div className="p-4 rounded bg-muted/30 border border-border">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Informações gerais</p>
                     <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
                       {[
@@ -712,7 +712,7 @@ export default function AnalysisResult() {
 
                   {/* SCEE Credit Summary */}
                   {analysis.credit_summary && (
-                    <div className="p-4 rounded-xl bg-primary/5 border border-primary/20">
+                    <div className="p-4 rounded bg-primary/5 border border-primary/20">
                       <p className="text-xs font-semibold text-primary uppercase tracking-wide mb-3">Saldo SCEE — Sistema de Compensação</p>
                       <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
                         {[
@@ -737,7 +737,7 @@ export default function AnalysisResult() {
 
                   {/* Billing Table with Glossary */}
                   {analysis.billing_items && analysis.billing_items.length > 0 && (
-                    <div className="p-4 rounded-xl bg-muted/30 border border-border">
+                    <div className="p-4 rounded bg-muted/30 border border-border">
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Tabela de faturamento linha a linha</p>
                       <div className="space-y-2">
                         {analysis.billing_items.map((item, idx) => {
@@ -794,7 +794,7 @@ export default function AnalysisResult() {
                   )}
 
                   {/* Taxes & efficiency */}
-                  <div className="p-4 rounded-xl bg-muted/30 border border-border">
+                  <div className="p-4 rounded bg-muted/30 border border-border">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Tributos e eficiência</p>
                     <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
                       {[

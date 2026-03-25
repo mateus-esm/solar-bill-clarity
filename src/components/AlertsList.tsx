@@ -20,7 +20,7 @@ export function AlertsList({ alerts, title = "Alertas e Observações" }: Alerts
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="p-4 bg-green-500/10 border border-green-500/20 rounded-xl"
+        className="p-4 bg-green-500/10 border border-green-500/20 rounded"
       >
         <div className="flex items-center gap-3">
           <CheckCircle className="h-5 w-5 text-green-500" />
@@ -106,7 +106,7 @@ export function AlertsList({ alerts, title = "Alertas e Observações" }: Alerts
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.1 }}
-              className={`p-4 ${styles.bg} border ${styles.border} rounded-xl`}
+              className={`p-4 ${styles.bg} border ${styles.border} rounded`}
             >
               <div className="flex items-start gap-3">
                 <div className="flex-shrink-0 mt-0.5">

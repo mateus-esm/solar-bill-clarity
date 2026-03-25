@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Sun, ArrowRight, Home, Zap, Share2 } from "lucide-react";
+import { Sun, ArrowDown, Home, Zap, Share2 } from "lucide-react";
 
 interface SolarEnergyCardProps {
   generated: number;
@@ -21,61 +21,73 @@ export function SolarEnergyCard({ generated, injected, compensated, creditsBalan
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.15 }}
-      className="rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-500/5 to-card p-5 space-y-5"
+      className="border border-border bg-card p-5 space-y-5"
+      style={{ borderRadius: "var(--radius)" }}
     >
-      <div className="flex items-center gap-2">
-        <div className="h-8 w-8 rounded-lg bg-amber-500/15 flex items-center justify-center">
-          <Sun className="h-4 w-4 text-amber-500" />
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div
+            className="h-8 w-8 flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg, #FF481E22, #FFC20015)", borderRadius: "var(--radius)", border: "1px solid #FF481E30" }}
+          >
+            <Sun className="h-4 w-4 text-primary" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground tracking-tight">Energia solar este mês</p>
+            <p className="text-xs text-muted-foreground">Destino de cada kWh gerado</p>
+          </div>
         </div>
-        <div>
-          <p className="text-sm font-semibold text-foreground">Sua energia solar este mês</p>
-          <p className="text-xs text-muted-foreground">Como o sistema usou cada kWh gerado</p>
+        {/* Big number inline */}
+        <div className="text-right">
+          <p className="text-2xl font-bold gradient-text leading-none">{fmt(generated)}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">kWh gerados</p>
         </div>
       </div>
 
-      {/* Big number */}
-      <div className="text-center py-2">
-        <p className="text-4xl font-bold gradient-text">{fmt(generated)}</p>
-        <p className="text-sm text-muted-foreground mt-1">kWh gerados pelo sistema</p>
-      </div>
+      {/* Precision separator */}
+      <div className="solo-divider" />
 
-      {/* Flow breakdown */}
-      <div className="space-y-3">
-        {/* Self consumption */}
-        <div className="flex items-center gap-3 p-3 rounded-xl bg-emerald-500/8 border border-emerald-500/15">
-          <div className="h-8 w-8 rounded-lg bg-emerald-500/15 flex items-center justify-center shrink-0">
-            <Home className="h-4 w-4 text-emerald-500" />
+      {/* Flow rows */}
+      <div className="space-y-2">
+
+        {/* Self-consumed */}
+        <div className="flex items-center gap-3 p-3 border border-emerald-500/20 bg-emerald-500/5"
+          style={{ borderRadius: "var(--radius)" }}>
+          <div className="h-7 w-7 shrink-0 flex items-center justify-center bg-emerald-500/15"
+            style={{ borderRadius: "var(--radius)" }}>
+            <Home className="h-3.5 w-3.5 text-emerald-400" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex justify-between items-baseline gap-2">
               <span className="text-sm font-medium text-foreground">Autoconsumo</span>
-              <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+              <span className="text-sm font-semibold text-emerald-400 whitespace-nowrap tabular-nums">
                 {fmt(selfConsumed)} kWh
               </span>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Usado direto em casa sem passar pela rede · {selfPct}% do gerado
-            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">Usado direto em casa · {selfPct}% do gerado</p>
           </div>
         </div>
 
-        {/* Arrow */}
-        <div className="flex items-center gap-2 px-3">
+        {/* Connector */}
+        <div className="flex items-center gap-2 px-3 py-1">
           <div className="flex-1 h-px bg-border" />
-          <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
-          <span className="text-xs text-muted-foreground whitespace-nowrap">injetado na rede</span>
+          <ArrowDown className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+          <span className="text-xs text-muted-foreground/60 whitespace-nowrap">injetado na rede</span>
           <div className="flex-1 h-px bg-border" />
         </div>
 
-        {/* Compensated */}
-        <div className="flex items-center gap-3 p-3 rounded-xl bg-blue-500/8 border border-blue-500/15">
-          <div className="h-8 w-8 rounded-lg bg-blue-500/15 flex items-center justify-center shrink-0">
-            <Zap className="h-4 w-4 text-blue-500" />
+        {/* Compensated this UC */}
+        <div className="flex items-center gap-3 p-3 border border-primary/20 bg-primary/5"
+          style={{ borderRadius: "var(--radius)" }}>
+          <div className="h-7 w-7 shrink-0 flex items-center justify-center bg-primary/15"
+            style={{ borderRadius: "var(--radius)" }}>
+            <Zap className="h-3.5 w-3.5 text-primary" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex justify-between items-baseline gap-2">
               <span className="text-sm font-medium text-foreground">Compensado nesta UC</span>
-              <span className="text-sm font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+              <span className="text-sm font-semibold text-primary whitespace-nowrap tabular-nums">
                 {fmt(compensated)} kWh
               </span>
             </div>
@@ -85,66 +97,69 @@ export function SolarEnergyCard({ generated, injected, compensated, creditsBalan
           </div>
         </div>
 
-        {/* Credits to other accounts */}
+        {/* Credits to other UCs */}
         {creditedElsewhere > 0 && (
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-purple-500/8 border border-purple-500/15">
-            <div className="h-8 w-8 rounded-lg bg-purple-500/15 flex items-center justify-center shrink-0">
-              <Share2 className="h-4 w-4 text-purple-500" />
+          <div className="flex items-center gap-3 p-3 border border-border bg-muted/30"
+            style={{ borderRadius: "var(--radius)" }}>
+            <div className="h-7 w-7 shrink-0 flex items-center justify-center bg-muted"
+              style={{ borderRadius: "var(--radius)" }}>
+              <Share2 className="h-3.5 w-3.5 text-muted-foreground" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex justify-between items-baseline gap-2">
                 <span className="text-sm font-medium text-foreground">Créditos para outras UCs</span>
-                <span className="text-sm font-semibold text-purple-600 dark:text-purple-400 whitespace-nowrap">
+                <span className="text-sm font-semibold text-foreground whitespace-nowrap tabular-nums">
                   {fmt(creditedElsewhere)} kWh
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Excedente transferido para unidades vinculadas via SCEE
-              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Excedente transferido via SCEE</p>
             </div>
           </div>
         )}
 
         {/* Credits balance */}
         {creditsBalance > 0 && (
-          <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/50">
-            <span className="text-xs text-muted-foreground">Saldo de créditos acumulados</span>
-            <span className="text-xs font-semibold text-foreground">{fmt(creditsBalance)} kWh</span>
+          <div className="flex items-center justify-between px-3 py-2 bg-muted/40"
+            style={{ borderRadius: "var(--radius)" }}>
+            <span className="text-xs text-muted-foreground">Saldo acumulado de créditos</span>
+            <span className="text-xs font-semibold text-foreground tabular-nums">{fmt(creditsBalance)} kWh</span>
           </div>
         )}
       </div>
 
-      {/* Summary bar */}
-      <div className="space-y-1.5">
-        <div className="flex justify-between text-xs text-muted-foreground">
-          <span>Distribuição do gerado</span>
-          <span>{fmt(generated)} kWh total</span>
+      {/* Distribution bar */}
+      <div className="space-y-2">
+        <div className="solo-divider" />
+        <div className="flex justify-between text-xs text-muted-foreground pt-1">
+          <span className="solo-label">Distribuição do gerado</span>
+          <span className="tabular-nums">{fmt(generated)} kWh total</span>
         </div>
-        <div className="h-2 rounded-full overflow-hidden bg-muted flex gap-0.5">
+        <div className="h-1.5 overflow-hidden flex gap-px" style={{ borderRadius: "var(--radius)", background: "hsl(var(--muted))" }}>
           {selfConsumed > 0 && (
             <motion.div
-              className="h-full rounded-full bg-emerald-500"
+              className="h-full bg-emerald-500"
               initial={{ width: 0 }}
               animate={{ width: `${selfPct}%` }}
-              transition={{ duration: 0.8, delay: 0.3 }}
+              transition={{ duration: 0.9, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
             />
           )}
           {injected > 0 && (
             <motion.div
-              className="h-full rounded-full bg-blue-500 ml-0.5"
+              className="h-full"
+              style={{ background: "#FF481E" }}
               initial={{ width: 0 }}
               animate={{ width: `${injectedPct}%` }}
-              transition={{ duration: 0.8, delay: 0.5 }}
+              transition={{ duration: 0.9, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
             />
           )}
         </div>
         <div className="flex gap-4 text-xs">
-          <span className="flex items-center gap-1 text-muted-foreground">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <span className="w-2 h-2 bg-emerald-500 inline-block" style={{ borderRadius: "1px" }} />
             Autoconsumo {selfPct}%
           </span>
-          <span className="flex items-center gap-1 text-muted-foreground">
-            <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <span className="w-2 h-2 inline-block" style={{ background: "#FF481E", borderRadius: "1px" }} />
             Injetado {injectedPct}%
           </span>
         </div>

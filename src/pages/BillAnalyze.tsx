@@ -349,7 +349,7 @@ export default function BillAnalyze() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
+      <header className="solo-header-bar border-b border-border bg-[#141414]/95 backdrop-blur-sm sticky top-0 z-50">
         <div className="container flex h-16 items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate(`/property/${id}`)}>
             <ArrowLeft className="h-5 w-5" />
@@ -364,7 +364,7 @@ export default function BillAnalyze() {
           animate={{ opacity: 1, y: 0 }}
         >
           <div className="mb-6">
-            <div className="h-12 w-12 rounded-xl gradient-bg flex items-center justify-center mb-4">
+            <div className="h-12 w-12 rounded gradient-bg flex items-center justify-center mb-4">
               <FileText className="h-6 w-6 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-foreground">
@@ -448,7 +448,7 @@ export default function BillAnalyze() {
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="flex items-center gap-4 p-4 bg-card rounded-xl border border-border"
+                  className="flex items-center gap-4 p-4 bg-card rounded border border-border"
                 >
                   <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
                     <FileText className="h-6 w-6 text-primary" />
@@ -486,7 +486,7 @@ export default function BillAnalyze() {
                     exit={{ opacity: 0, height: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="p-4 rounded-xl bg-accent/50 border border-accent space-y-3">
+                    <div className="p-4 rounded bg-accent/50 border border-accent space-y-3">
                       <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                         <Lock className="h-4 w-4 text-primary" />
                         PDF protegido por senha
@@ -549,7 +549,7 @@ export default function BillAnalyze() {
 
             {/* Expected Generation Info */}
             {expectedGeneration > 0 && (
-              <div className="p-4 rounded-xl bg-primary/10 border border-primary/20">
+              <div className="p-4 rounded bg-primary/10 border border-primary/20">
                 <div className="flex items-center gap-2 mb-2">
                   <Zap className="h-4 w-4 text-primary" />
                   <span className="text-sm font-medium text-foreground">

@@ -2,100 +2,124 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+/* ── SOLO ENERGIA — NeueMontreal ─────────────────────── */
+@font-face {
+  font-family: 'NeueMontreal';
+  src: url('/fonts/NeueMontreal-Light.otf') format('opentype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'NeueMontreal';
+  src: url('/fonts/NeueMontreal-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'NeueMontreal';
+  src: url('/fonts/NeueMontreal-Medium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'NeueMontreal';
+  src: url('/fonts/NeueMontreal-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── SOLO BRAND TOKENS ──────────────────────────────────
+   Primary:   #FF481E  →  hsl(11 100% 56%)   [Solar orange-red]
+   Deep:      #9E2A19  →  hsl(8 73% 36%)     [Burnt crimson]
+   Dark:      #141414  →  hsl(0 0% 8%)       [Near-black bg]
+   Cream:     #E3E2DD  →  hsl(47 10% 88%)    [Warm off-white]
+   Yellow:    #FFC200  →  hsl(46 100% 50%)   [Solar yellow]
+   Gradient:  #FF481E → #FFC200              [Solar energy]
+───────────────────────────────────────────────────────── */
 
 @layer base {
   :root {
-    --background: 0 0% 98%;
-    --foreground: 0 0% 8%;
+    /* ── Background surfaces ─── */
+    --background:        0 0% 8%;       /* #141414 */
+    --foreground:        47 10% 88%;    /* #E3E2DD cream */
 
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 8%;
+    --card:              0 0% 10%;      /* #1A1A1A panel */
+    --card-foreground:   47 10% 88%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 8%;
+    --popover:           0 0% 11%;
+    --popover-foreground: 47 10% 88%;
 
-    --primary: 24 95% 53%;
+    /* ── Brand accent ─── */
+    --primary:           11 100% 56%;   /* #FF481E */
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 45 100% 51%;
-    --secondary-foreground: 0 0% 8%;
+    /* ── Secondary (deep crimson) ─── */
+    --secondary:         8 73% 36%;     /* #9E2A19 */
+    --secondary-foreground: 47 10% 88%;
 
-    --muted: 0 0% 94%;
-    --muted-foreground: 0 0% 45%;
+    /* ── Neutrals ─── */
+    --muted:             0 0% 13%;      /* #212121 */
+    --muted-foreground:  47 6% 55%;     /* warm medium gray */
 
-    --accent: 24 95% 53%;
+    --accent:            11 100% 56%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84% 60%;
+    /* ── Semantic ─── */
+    --destructive:       0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
-    --ring: 24 95% 53%;
+    /* ── Structure ─── */
+    --border:            0 0% 16%;      /* #292929 hairline */
+    --input:             0 0% 16%;
+    --ring:              11 100% 56%;
 
-    --radius: 0.75rem;
+    /* ── Precision radius (anguloso, Tesla-like) ─── */
+    --radius:            0.25rem;       /* 4px — sharp precision */
 
-    /* Solo custom tokens */
-    --solo-orange: 24 95% 53%;
-    --solo-yellow: 45 100% 51%;
-    --solo-dark: 0 0% 8%;
-    --solo-gradient: linear-gradient(135deg, hsl(24 95% 53%) 0%, hsl(45 100% 51%) 100%);
-    --solo-gradient-subtle: linear-gradient(135deg, hsl(24 95% 53% / 0.1) 0%, hsl(45 100% 51% / 0.1) 100%);
-    
-    /* Card shadows */
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-    --shadow-glow: 0 0 40px -10px hsl(24 95% 53% / 0.4);
+    /* ── Solo brand tokens ─── */
+    --solo-orange:       11 100% 56%;   /* #FF481E */
+    --solo-crimson:      8 73% 36%;     /* #9E2A19 */
+    --solo-yellow:       46 100% 50%;   /* #FFC200 */
+    --solo-dark:         0 0% 8%;       /* #141414 */
+    --solo-cream:        47 10% 88%;    /* #E3E2DD */
 
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* ── Gradients ─── */
+    --solo-gradient:         linear-gradient(135deg, #FF481E 0%, #FFC200 100%);
+    --solo-gradient-subtle:  linear-gradient(135deg, rgb(255 72 30 / 0.12) 0%, rgb(255 194 0 / 0.08) 100%);
+    --solo-gradient-border:  linear-gradient(135deg, #FF481E 0%, #FFC200 100%);
+    --solo-gradient-vertical: linear-gradient(180deg, #FF481E 0%, #FFC200 100%);
+
+    /* ── Shadows (minimal, precision-focused) ─── */
+    --shadow-sm:   0 1px 0 0 rgb(0 0 0 / 0.4);
+    --shadow-md:   0 2px 8px 0 rgb(0 0 0 / 0.5);
+    --shadow-glow: 0 0 32px -8px rgb(255 72 30 / 0.5);
+    --shadow-glow-sm: 0 0 16px -4px rgb(255 72 30 / 0.35);
+
+    /* ── Sidebar ─── */
+    --sidebar-background:           0 0% 8%;
+    --sidebar-foreground:           47 10% 88%;
+    --sidebar-primary:              11 100% 56%;
+    --sidebar-primary-foreground:   0 0% 100%;
+    --sidebar-accent:               0 0% 13%;
+    --sidebar-accent-foreground:    47 10% 88%;
+    --sidebar-border:               0 0% 16%;
+    --sidebar-ring:                 11 100% 56%;
   }
 
-  .dark {
-    --background: 0 0% 6%;
-    --foreground: 0 0% 96%;
-
-    --card: 0 0% 10%;
-    --card-foreground: 0 0% 96%;
-
-    --popover: 0 0% 10%;
-    --popover-foreground: 0 0% 96%;
-
-    --primary: 24 95% 53%;
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 45 100% 51%;
-    --secondary-foreground: 0 0% 8%;
-
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 60%;
-
-    --accent: 24 95% 53%;
-    --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 96%;
-
-    --border: 0 0% 18%;
-    --input: 0 0% 18%;
-    --ring: 24 95% 53%;
-    
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+  /* Light mode override (kept minimal, dark is default) */
+  .light {
+    --background:        47 20% 96%;
+    --foreground:        0 0% 8%;
+    --card:              0 0% 100%;
+    --card-foreground:   0 0% 8%;
+    --muted:             47 10% 93%;
+    --muted-foreground:  0 0% 40%;
+    --border:            47 8% 88%;
+    --input:             47 8% 88%;
   }
 }
 
@@ -104,13 +128,37 @@
     @apply border-border;
   }
 
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'kern' 1, 'liga' 1;
+  }
+
   body {
-    @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', sans-serif;
+    @apply bg-background text-foreground;
+    font-family: 'NeueMontreal', system-ui, -apple-system, sans-serif;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+  }
+
+  /* Headings use Bold weight */
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  /* Tabular numbers for all financial/metric data */
+  .tabular-nums,
+  [data-value],
+  .font-bold,
+  .font-semibold {
+    font-variant-numeric: tabular-nums;
   }
 }
 
 @layer components {
+
+  /* ── GRADIENT UTILITIES ─────────────────────────── */
   .gradient-text {
     background: var(--solo-gradient);
     -webkit-background-clip: text;
@@ -122,59 +170,193 @@
     background: var(--solo-gradient);
   }
 
+  .gradient-bg-vertical {
+    background: var(--solo-gradient-vertical);
+  }
+
+  .gradient-subtle {
+    background: var(--solo-gradient-subtle);
+  }
+
+  /* Gradient border via pseudo-element */
   .gradient-border {
     position: relative;
     background: hsl(var(--card));
     border-radius: var(--radius);
   }
-
   .gradient-border::before {
     content: '';
     position: absolute;
     inset: 0;
-    padding: 2px;
+    padding: 1px;
     border-radius: var(--radius);
-    background: var(--solo-gradient);
+    background: var(--solo-gradient-border);
     -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     pointer-events: none;
   }
 
-  .card-glow {
-    box-shadow: var(--shadow-glow);
+  /* ── BRAND ACCENT LINE ──────────────────────────── */
+  /* Left vertical accent — precision engineering feel */
+  .solo-accent-line {
+    border-left: 2px solid hsl(var(--solo-orange));
+    padding-left: 0.75rem;
   }
 
+  .solo-accent-line-gradient {
+    position: relative;
+    padding-left: 0.875rem;
+  }
+  .solo-accent-line-gradient::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--solo-gradient-vertical);
+    border-radius: 1px;
+  }
+
+  /* ── SECTION LABEL ──────────────────────────────── */
+  .solo-label {
+    font-size: 0.6875rem;         /* 11px */
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+
+  /* ── DATA METRIC ────────────────────────────────── */
+  /* Large numbers with engineering precision */
+  .solo-metric {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: hsl(var(--foreground));
+  }
+
+  .solo-metric-sm {
+    font-size: 1.375rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── CARD BASE ──────────────────────────────────── */
+  .solo-card {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    padding: 1.25rem;
+  }
+
+  /* ── SEPARATOR LINE ─────────────────────────────── */
+  .solo-divider {
+    height: 1px;
+    background: hsl(var(--border));
+    margin: 0;
+  }
+
+  /* ── GLOW EFFECT ────────────────────────────────── */
+  .solo-glow {
+    box-shadow: var(--shadow-glow);
+  }
+  .solo-glow-sm {
+    box-shadow: var(--shadow-glow-sm);
+  }
+
+  /* ── UPLOAD ZONE ────────────────────────────────── */
   .upload-zone {
-    @apply border-2 border-dashed rounded-xl p-8 transition-all duration-300 cursor-pointer;
+    @apply border-2 border-dashed p-8 transition-all duration-200 cursor-pointer;
+    border-radius: var(--radius);
     border-color: hsl(var(--border));
     background: hsl(var(--muted) / 0.5);
   }
-
   .upload-zone:hover {
     border-color: hsl(var(--primary));
-    background: hsl(var(--primary) / 0.05);
+    background: hsl(var(--primary) / 0.06);
   }
-
   .upload-zone.dragging {
     border-color: hsl(var(--primary));
-    background: hsl(var(--primary) / 0.1);
-    transform: scale(1.02);
+    background: hsl(var(--primary) / 0.10);
+    box-shadow: var(--shadow-glow-sm);
   }
 
+  /* ── STAT CARD ──────────────────────────────────── */
   .stat-card {
-    @apply bg-card rounded-xl p-6 transition-all duration-300;
-    box-shadow: var(--shadow-md);
+    @apply bg-card p-5 transition-all duration-200;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+  }
+  .stat-card:hover {
+    border-color: hsl(var(--primary) / 0.4);
   }
 
-  .stat-card:hover {
-    box-shadow: var(--shadow-lg);
-    transform: translateY(-2px);
+  /* ── PROGRESS BAR (engineering style) ──────────── */
+  .solo-progress-track {
+    height: 3px;
+    background: hsl(var(--border));
+    border-radius: 0;
+    overflow: hidden;
+  }
+  .solo-progress-fill {
+    height: 100%;
+    background: var(--solo-gradient);
+    border-radius: 0;
+    transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* ── HEADER BRAND BAR ───────────────────────────── */
+  /* 2px gradient line below header — brand signature */
+  .solo-header-bar {
+    position: relative;
+  }
+  .solo-header-bar::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--solo-gradient);
+    opacity: 0.6;
   }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* Engineering grid lines (subtle background pattern) */
+  .solo-grid-bg {
+    background-image:
+      linear-gradient(hsl(var(--border) / 0.5) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.5) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* Orange dot indicator */
+  .solo-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: hsl(var(--primary));
+    border-radius: 1px;
+    flex-shrink: 0;
+  }
+
+  .solo-dot-gradient {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: var(--solo-gradient);
+    border-radius: 1px;
+    flex-shrink: 0;
   }
 }

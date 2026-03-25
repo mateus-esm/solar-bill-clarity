@@ -267,7 +267,7 @@ export default function Index() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
+      <header className="solo-header-bar border-b border-border bg-[#141414]/95 backdrop-blur-sm sticky top-0 z-50">
         <div className="container flex h-16 items-center justify-between">
           <img src={soloLogo} alt="Solo Energia" className="h-8 w-auto" />
           <Button variant="gradient" size="sm" onClick={() => (window.location.href = "/auth")}>
@@ -288,14 +288,21 @@ export default function Index() {
             >
               {/* Hero */}
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
-                <div className="mx-auto mb-4 inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-2">
-                  <Zap className="h-4 w-4 text-primary" />
-                  <span className="text-sm font-medium text-primary">Bill Clarifier v1.0</span>
+                <div
+                  className="mx-auto mb-5 inline-flex items-center gap-2 px-3 py-1.5 border"
+                  style={{
+                    borderRadius: "var(--radius)",
+                    borderColor: "rgb(255 72 30 / 0.3)",
+                    background: "rgb(255 72 30 / 0.08)",
+                  }}
+                >
+                  <Zap className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-xs font-medium text-primary tracking-wide uppercase">Bill Clarifier</span>
                 </div>
-                <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-                  Entenda sua <span className="gradient-text">Conta de Energia</span>
+                <h1 className="text-3xl font-bold text-foreground sm:text-4xl leading-tight" style={{ letterSpacing: "-0.025em" }}>
+                  Entenda sua <span className="gradient-text">conta de energia</span>
                 </h1>
-                <p className="mt-3 text-muted-foreground">
+                <p className="mt-3 text-muted-foreground text-sm">
                   Descubra por que você está pagando esse valor e como pagar menos
                 </p>
               </motion.div>
@@ -316,7 +323,7 @@ export default function Index() {
                       exit={{ opacity: 0, height: 0 }}
                       className="overflow-hidden"
                     >
-                      <div className="p-4 rounded-xl bg-accent/50 border border-accent space-y-3">
+                      <div className="p-4 bg-muted/50 border border-accent space-y-3">
                         <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                           <Lock className="h-4 w-4 text-primary" />
                           PDF protegido por senha
@@ -383,10 +390,10 @@ export default function Index() {
                 className="mt-4 flex items-center justify-center gap-6 text-xs text-muted-foreground"
               >
                 <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" /> Análise segura
+                  <span className="h-2 w-2 bg-emerald-500" /> Análise segura
                 </span>
                 <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-primary" /> Respostas claras
+                  <span className="h-2 w-2 bg-primary" /> Respostas claras
                 </span>
               </motion.div>
             </motion.div>

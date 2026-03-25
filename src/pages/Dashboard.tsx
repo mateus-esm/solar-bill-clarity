@@ -98,7 +98,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
+      <header className="solo-header-bar border-b border-border bg-[#141414]/95 backdrop-blur-sm sticky top-0 z-50">
         <div className="container flex h-16 items-center justify-between">
           <img src={soloLogo} alt="Solo Energia" className="h-8 w-auto" />
           <div className="flex items-center gap-4">
@@ -180,7 +180,7 @@ export default function Dashboard() {
                   onClick={() => navigate(`/property/${property.id}`)}
                 >
                   <div className="flex items-start justify-between mb-4">
-                    <div className="h-12 w-12 rounded-xl gradient-bg flex items-center justify-center">
+                    <div className="h-12 w-12 rounded gradient-bg flex items-center justify-center">
                       <Home className="h-6 w-6 text-white" />
                     </div>
                     <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />

@@ -34,7 +34,7 @@ export function BillScoreHeader({ score, label, factors, totalAmount, savings = 
     <motion.div
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`rounded-2xl bg-gradient-to-br ${getScoreBgColor(score)} border border-border p-6`}
+      className={`rounded-lg bg-gradient-to-br ${getScoreBgColor(score)} border border-border p-6`}
     >
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
         {/* Score Circle */}

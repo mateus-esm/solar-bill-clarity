@@ -206,7 +206,7 @@ export default function PropertyForm() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
+      <header className="solo-header-bar border-b border-border bg-[#141414]/95 backdrop-blur-sm sticky top-0 z-50">
         <div className="container flex h-16 items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard")}>
             <ArrowLeft className="h-5 w-5" />
@@ -245,7 +245,7 @@ export default function PropertyForm() {
             exit={{ opacity: 0, x: -20 }}
           >
             <div className="mb-6">
-              <div className="h-12 w-12 rounded-xl gradient-bg flex items-center justify-center mb-4">
+              <div className="h-12 w-12 rounded gradient-bg flex items-center justify-center mb-4">
                 <Home className="h-6 w-6 text-white" />
               </div>
               <h1 className="text-2xl font-bold text-foreground">
@@ -354,7 +354,7 @@ export default function PropertyForm() {
             exit={{ opacity: 0, x: -20 }}
           >
             <div className="mb-6">
-              <div className="h-12 w-12 rounded-xl gradient-bg flex items-center justify-center mb-4">
+              <div className="h-12 w-12 rounded gradient-bg flex items-center justify-center mb-4">
                 <Sun className="h-6 w-6 text-white" />
               </div>
               <h1 className="text-2xl font-bold text-foreground">
@@ -463,7 +463,7 @@ export default function PropertyForm() {
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="p-4 rounded-xl bg-primary/10 border border-primary/20"
+                  className="p-4 rounded bg-primary/10 border border-primary/20"
                 >
                   <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
                     <Zap className="h-4 w-4 text-primary" />

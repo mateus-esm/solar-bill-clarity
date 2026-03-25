@@ -72,7 +72,7 @@ export function RecommendationCards({ recommendations }: RecommendationCardsProp
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.1 }}
-              className="p-4 bg-card border border-border rounded-xl hover:border-primary/30 transition-colors"
+              className="p-4 bg-card border border-border rounded hover:border-primary/30 transition-colors"
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
