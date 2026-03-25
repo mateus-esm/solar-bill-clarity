@@ -112,7 +112,7 @@ export default function BillAnalyze() {
     if (files && files.length > 0) {
       const droppedFile = files[0];
       if (isValidFileType(droppedFile)) {
-        setFile(droppedFile);
+        handleFileSelected(droppedFile);
       } else {
         toast({
           title: "Arquivo inválido",
