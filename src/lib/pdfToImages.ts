@@ -14,17 +14,56 @@ export interface PdfPageImage {
 }
 
 /**
+ * Custom error thrown when a PDF requires a password.
+ */
+export class PdfPasswordRequiredError extends Error {
+  constructor() {
+    super("PDF protegido por senha");
+    this.name = "PdfPasswordRequiredError";
+  }
+}
+
+/**
+ * Custom error thrown when the provided password is incorrect.
+ */
+export class PdfPasswordIncorrectError extends Error {
+  constructor() {
+    super("Senha incorreta para este PDF");
+    this.name = "PdfPasswordIncorrectError";
+  }
+}
+
+/**
  * Convert a PDF file to an array of base64 PNG images (one per page).
  * By default only the first page is converted (maxPages=1).
+ * Pass `password` to unlock password-protected PDFs.
  */
 export async function pdfToImages(
   file: File,
-  options?: { maxPages?: number; scale?: number }
+  options?: { maxPages?: number; scale?: number; password?: string }
 ): Promise<PdfPageImage[]> {
-  const { maxPages = 1, scale = 2 } = options || {};
+  const { maxPages = 1, scale = 2, password } = options || {};
 
   const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+  let pdf: pdfjsLib.PDFDocumentProxy;
+  try {
+    pdf = await pdfjsLib.getDocument({
+      data: arrayBuffer,
+      password: password || undefined,
+    }).promise;
+  } catch (err: any) {
+    if (err?.name === "PasswordException") {
+      if (err.code === pdfjsLib.PasswordResponses.NEED_PASSWORD) {
+        throw new PdfPasswordRequiredError();
+      }
+      if (err.code === pdfjsLib.PasswordResponses.INCORRECT_PASSWORD) {
+        throw new PdfPasswordIncorrectError();
+      }
+    }
+    throw err;
+  }
+
   const numPages = Math.min(pdf.numPages, maxPages);
   const images: PdfPageImage[] = [];
 
@@ -58,4 +97,19 @@ export function isPdfFile(file: File): boolean {
   return (
     file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
   );
+}
+
+/**
+ * Test if a PDF file requires a password. Returns true if password-protected.
+ */
+export async function isPdfPasswordProtected(file: File): Promise<boolean> {
+  try {
+    await pdfToImages(file, { maxPages: 1, scale: 0.5 });
+    return false;
+  } catch (err) {
+    if (err instanceof PdfPasswordRequiredError) {
+      return true;
+    }
+    return false;
+  }
 }
