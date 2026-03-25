@@ -544,7 +544,7 @@ export default function BillAnalyze() {
               size="lg"
               className="w-full"
               onClick={handleSubmit}
-              disabled={!file || !monitoredGeneration || isLoading}
+              disabled={!file || !monitoredGeneration || isLoading || pdfNeedsPassword}
             >
               {isLoading ? (
                 <>
