@@ -442,13 +442,64 @@ export default function BillAnalyze() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => setFile(null)}
+                      onClick={() => {
+                        setFile(null);
+                        setPdfNeedsPassword(false);
+                        setPdfPassword("");
+                      }}
                     >
                       <X className="h-4 w-4" />
                     </Button>
                   )}
                 </motion.div>
               )}
+
+              {/* PDF Password Field */}
+              <AnimatePresence>
+                {pdfNeedsPassword && file && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="p-4 rounded-xl bg-accent/50 border border-accent space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                        <Lock className="h-4 w-4 text-primary" />
+                        PDF protegido por senha
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Este PDF requer uma senha para ser lido. Digite a senha abaixo.
+                      </p>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Input
+                            type={showPassword ? "text" : "password"}
+                            placeholder="Senha do PDF"
+                            value={pdfPassword}
+                            onChange={(e) => setPdfPassword(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleValidatePassword()}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          >
+                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                        <Button
+                          onClick={handleValidatePassword}
+                          disabled={!pdfPassword || checkingPdf}
+                          size="default"
+                        >
+                          {checkingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : "Desbloquear"}
+                        </Button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* Monitored Generation */}
