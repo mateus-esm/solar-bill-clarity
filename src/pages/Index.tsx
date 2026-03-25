@@ -84,6 +84,46 @@ export default function Index() {
     });
   }, []);
 
+  const handleFileSelect = async (f: File) => {
+    setPdfNeedsPassword(false);
+    setPdfPassword("");
+    setFile(f);
+    if (isPdfFile(f)) {
+      setCheckingPdf(true);
+      try {
+        await pdfToImages(f, { maxPages: 1, scale: 0.5 });
+      } catch (err) {
+        if (err instanceof PdfPasswordRequiredError) {
+          setPdfNeedsPassword(true);
+        }
+      } finally {
+        setCheckingPdf(false);
+      }
+    }
+  };
+
+  const handleValidatePassword = async () => {
+    if (!file || !pdfPassword) return;
+    setCheckingPdf(true);
+    try {
+      await pdfToImages(file, { maxPages: 1, scale: 0.5, password: pdfPassword });
+      setPdfNeedsPassword(false);
+      toast({ title: "PDF desbloqueado!", description: "Senha aceita com sucesso." });
+    } catch (err) {
+      if (err instanceof PdfPasswordIncorrectError || err instanceof PdfPasswordRequiredError) {
+        toast({ title: "Senha incorreta", description: "Tente novamente.", variant: "destructive" });
+      }
+    } finally {
+      setCheckingPdf(false);
+    }
+  };
+
+  const handleClearFile = () => {
+    setFile(null);
+    setPdfNeedsPassword(false);
+    setPdfPassword("");
+  };
+
   const handleAnalyze = async () => {
     if (!file || !solarGeneration) return;
 
