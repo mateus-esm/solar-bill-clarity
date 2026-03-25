@@ -127,11 +127,11 @@ export default function BillAnalyze() {
     return file.type.match(/^image\/(jpeg|png|webp)$/) || file.type === "application/pdf";
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
       if (isValidFileType(files[0])) {
-        setFile(files[0]);
+        await handleFileSelected(files[0]);
       } else {
         toast({
           title: "Arquivo inválido",
@@ -139,6 +139,41 @@ export default function BillAnalyze() {
           variant: "destructive",
         });
       }
+    }
+  };
+
+  const handleFileSelected = async (selectedFile: File) => {
+    setPdfNeedsPassword(false);
+    setPdfPassword("");
+    setFile(selectedFile);
+
+    if (isPdfFile(selectedFile)) {
+      setCheckingPdf(true);
+      try {
+        await pdfToImages(selectedFile, { maxPages: 1, scale: 0.5 });
+      } catch (err) {
+        if (err instanceof PdfPasswordRequiredError) {
+          setPdfNeedsPassword(true);
+        }
+      } finally {
+        setCheckingPdf(false);
+      }
+    }
+  };
+
+  const handleValidatePassword = async () => {
+    if (!file || !pdfPassword) return;
+    setCheckingPdf(true);
+    try {
+      await pdfToImages(file, { maxPages: 1, scale: 0.5, password: pdfPassword });
+      setPdfNeedsPassword(false);
+      toast({ title: "PDF desbloqueado!", description: "Senha aceita com sucesso." });
+    } catch (err) {
+      if (err instanceof PdfPasswordIncorrectError || err instanceof PdfPasswordRequiredError) {
+        toast({ title: "Senha incorreta", description: "Tente novamente com a senha correta.", variant: "destructive" });
+      }
+    } finally {
+      setCheckingPdf(false);
     }
   };
 
