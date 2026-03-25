@@ -413,7 +413,7 @@ Extraia TODOS os campos disponíveis e retorne um JSON válido:
   "consumer_class": "classe de consumo (Residencial, Comercial, Industrial, Rural)",
   "subclass": "subgrupo tarifário (B1, B2, B3, A4, etc)",
   "tariff_modality": "modalidade (Convencional, Branca, Horosazonal Verde, Horosazonal Azul)",
-  "connection_type": "tipo de ligação elétrica da unidade consumidora: monofasico, bifasico ou trifasico. Procure nos dados técnicos, informações da instalação, tipo de ramal ou número de fases. Trifásico tem 3 fases, bifásico 2 fases, monofásico 1 fase.",
+  "connection_type": "OBRIGATÓRIO — tipo de ligação elétrica. Valores aceitos: monofasico, bifasico, trifasico. Procure em TODA a conta: dados técnicos, informações da instalação, tipo de ramal, número de fases, seção de identificação, rodapé. Pistas: 'trifásico'/'3 fases'/'3F' = trifasico; 'bifásico'/'2 fases'/'2F' = bifasico; 'monofásico'/'1 fase'/'1F' = monofasico. TAMBÉM infira pelo custo de disponibilidade: se availability_cost ÷ (tariff_te_kwh + tariff_tusd_kwh) ≈ 100 então trifasico, ≈ 50 então bifasico, ≈ 30 então monofasico.",
   
   "reference_month": número do mês de referência (1-12),
   "reference_year": ano de referência (ex: 2024),
@@ -463,7 +463,7 @@ Extraia TODOS os campos disponíveis e retorne um JSON válido:
   "sectoral_charges": encargos setoriais (CDE, PROINFA, etc) em R$,
   "fines_amount": multas por atraso em R$,
   "interest_amount": juros por atraso em R$,
-  "other_charges": outras cobranças em R$,
+  "other_charges": "SOMA de cobranças que NÃO são: energia, disponibilidade, CIP, ICMS, PIS, COFINS, multa ou juros. Inclui parcelamentos, serviços contratados, seguros, etc. Se identificar itens individuais, coloque-os em service_items ou installment_items E some aqui.",
   "other_credits": outros créditos/descontos em R$,
   
   "demand_contracted_kw": demanda contratada em kW (Grupo A),
@@ -826,111 +826,139 @@ async function performSpecialistAnalysis(
     ? ((monitoredGeneration - rawData.injected_energy_kwh) / monitoredGeneration) * 100 
     : 0;
   
-  const analystPrompt = `Você é um consultor de energia com 20 anos de experiência em contas de luz brasileiras e sistemas solares fotovoltaicos.
-Seu papel é analisar os dados extraídos e explicar TUDO para o cliente de forma clara e acessível.
+  // Pre-compute key analytical flags for the prompt
+  const minKwhByType: Record<string, number> = { monofasico: 30, bifasico: 50, trifasico: 100 };
+  const minKwh = rawData.connection_type ? (minKwhByType[rawData.connection_type] ?? null) : null;
+  const billedKwh = rawData.measured_consumption_kwh ?? 0;
+  const compensatedKwh = rawData.compensated_energy_kwh ?? 0;
+  const injectedKwh = rawData.injected_energy_kwh ?? 0;
+  const netBilled = Math.max(0, billedKwh - compensatedKwh);
+  const solarCoveredMinimum = minKwh !== null && netBilled <= minKwh * 1.1; // within 10% of minimum
+  const creditsToOtherAccounts = injectedKwh > compensatedKwh * 2; // injected >> compensated
+  const extraChargesTotal = [
+    ...(rawData.service_items ?? []),
+    ...(rawData.installment_items ?? []),
+  ].reduce((s, i) => s + (i.value ?? 0), 0);
+  const otherChargesTotal = (rawData.other_charges ?? 0) + extraChargesTotal;
 
-DADOS EXTRAÍDOS DA CONTA:
+  const analystPrompt = `Você é um professor especialista em contas de energia elétrica brasileira e sistemas solares fotovoltaicos.
+Sua missão é explicar CADA LINHA da conta para o cliente como se ele nunca tivesse visto uma fatura de energia — didático, preciso, sem jargões.
+
+═══════════════════════════════════════
+DADOS EXTRAÍDOS DA CONTA
+═══════════════════════════════════════
 ${JSON.stringify(rawData, null, 2)}
 
-DADOS DO MONITORAMENTO SOLAR:
-- Geração monitorada no período: ${monitoredGeneration} kWh
+═══════════════════════════════════════
+DADOS DO MONITORAMENTO SOLAR
+═══════════════════════════════════════
+- Geração monitorada: ${monitoredGeneration} kWh
 - Geração esperada (projeto): ${expectedGeneration} kWh
-- Eficiência calculada: ${solarEfficiency.toFixed(1)}%
-- Taxa de autoconsumo: ${selfConsumption.toFixed(1)}%
+- Eficiência: ${solarEfficiency.toFixed(1)}%
+- Autoconsumo: ${selfConsumption.toFixed(1)}%
 - Consumo real estimado: ${realConsumption.toFixed(1)} kWh
+
+═══════════════════════════════════════
+ANÁLISES PRÉ-CALCULADAS (use estas na análise)
+═══════════════════════════════════════
+- Tipo de ligação: ${rawData.connection_type ?? "não identificado"}
+- Mínimo obrigatório (kWh): ${minKwh ?? "não calculado"}
+- Consumo líquido após compensação: ${netBilled.toFixed(0)} kWh
+- SOLAR COBRIU O MÍNIMO: ${solarCoveredMinimum ? "SIM — o sistema compensou tudo que era possível, restando apenas o mínimo obrigatório de " + minKwh + " kWh. Isso é excelente — significa que o solar fez seu trabalho máximo nesta conta." : "NÃO — ainda há consumo além do mínimo não coberto pelo solar."}
+- CRÉDITOS PARA OUTRAS UCs: ${creditsToOtherAccounts ? "PROVÁVEL — energia injetada (" + injectedKwh + " kWh) muito maior que compensada (" + compensatedKwh + " kWh). O excedente de " + (injectedKwh - compensatedKwh).toFixed(0) + " kWh foi provavelmente transferido como crédito para outras unidades consumidoras vinculadas." : "Não detectado."}
+- Cobranças extras (serviços/parcelamentos): R$ ${extraChargesTotal.toFixed(2)}
+- Outros encargos (other_charges): R$ ${(rawData.other_charges ?? 0).toFixed(2)}
 
 Retorne um JSON com análise completa:
 
 {
-  "executive_summary": "Resumo executivo de 2-3 frases sobre a situação geral da conta",
-  
+  "executive_summary": "Resumo executivo de 3-4 frases: o que aconteceu nesta conta, como o solar performou, e o ponto mais importante para o cliente saber.",
+
   "explanations": {
     "consumption": {
-      "title": "Seu Consumo de Energia",
-      "description": "Explicação clara do consumo, comparando com a geração solar",
-      "comparison": "Comparativo com o mês anterior se disponível"
+      "title": "Como foi calculado seu consumo",
+      "description": "Explique passo a passo: consumo medido → compensação solar → consumo faturado. Use os números reais da conta. Se o solar cobriu o mínimo, destaque isso como conquista."
     },
     "solar_performance": {
-      "title": "Desempenho do Sistema Solar",
-      "description": "Análise da geração vs expectativa, eficiência, possíveis causas de variação",
-      "efficiency_assessment": "Avaliação: Excelente/Bom/Regular/Abaixo do esperado"
+      "title": "O que seu sistema solar fez neste mês",
+      "description": "Explique: gerou X kWh, injetou Y kWh na rede, compensou Z kWh nesta UC. Se há créditos indo para outras UCs, explique que isso é normal em sistemas com múltiplas unidades vinculadas (SCEE/Compensação). Avalie a eficiência vs projeto.",
+      "efficiency_assessment": "Excelente (>95%) / Bom (85-95%) / Regular (70-85%) / Abaixo do esperado (<70%)"
+    },
+    "availability": {
+      "title": "Taxa de Disponibilidade — a conta que nunca some",
+      "description": "Explique que todo imóvel trifásico (ou bifásico/monofásico) paga um mínimo obrigatório de X kWh por mês pela CONEXÃO à rede, independente de ter solar ou não. É como uma 'mensalidade' para manter a luz disponível. Para trifásico são 100 kWh × tarifa. O valor pago foi R$ X."
+    },
+    "cip": {
+      "title": "CIP — Contribuição de Iluminação Pública",
+      "description": "Explique que este valor (R$ X) vai para a prefeitura custear os postes de luz da rua. É fixo, não muda com consumo e não tem relação com o solar."
     },
     "taxes": {
       "icms": {
-        "what_is": "O que é ICMS em linguagem simples",
-        "your_value": "Você pagou R$ X, que representa Y% da conta",
-        "tip": "Dica sobre ICMS se aplicável"
+        "title": "ICMS sobre energia",
+        "description": "Imposto estadual cobrado sobre o valor da energia. No Ceará é de X%. Você pagou R$ X de ICMS nesta conta. Ele incide mesmo sobre a energia compensada pelo solar."
       },
       "pis_cofins": {
-        "what_is": "O que são PIS e COFINS",
-        "your_value": "Valores pagos e proporção",
-        "tip": "Dica relevante"
-      },
-      "cip": {
-        "what_is": "O que é a Contribuição de Iluminação Pública",
-        "your_value": "Valor pago - esta taxa é fixa e vai para a prefeitura"
+        "title": "PIS e COFINS",
+        "description": "Tributos federais sobre a receita da distribuidora. Você pagou R$ X no total. São proporcionais ao consumo."
       }
     },
-    "tariff_flag": {
-      "current": "Nome da bandeira atual",
-      "what_means": "Explicação do que significa essa bandeira",
-      "impact": "Quanto custou a mais por causa da bandeira"
+    "extra_charges": {
+      "title": "Outros serviços e cobranças na conta",
+      "description": "Liste e explique cada serviço/parcelamento identificado nos dados (service_items e installment_items). Se other_charges > 0 e não houver itens detalhados, alerte que há R$ X em cobranças extras não detalhadas que o cliente deve verificar na fatura original. Esses valores NÃO têm relação com o consumo de energia — são produtos/serviços contratados separadamente."
     },
     "credits": {
-      "status": "Situação atual dos créditos de energia solar",
-      "expiry_warning": "Aviso sobre créditos próximos de expirar (se houver)",
-      "optimization_tip": "Dica para otimizar uso dos créditos"
+      "title": "Créditos de energia solar",
+      "description": "Explique a situação dos créditos: gerados, utilizados, saldo. Se créditos estão indo para outras UCs, explique o mecanismo de compensação. Se saldo é zero mas injeção foi alta, confirme que os créditos foram transferidos ou consumidos."
     },
-    "availability": {
-      "what_is": "O que é o custo de disponibilidade (taxa mínima)",
-      "your_value": "Quanto você paga de taxa mínima"
+    "tariff_flag": {
+      "title": "Bandeira tarifária",
+      "description": "Explique qual bandeira está ativa e o que significa (verde = reservatórios cheios, sem custo extra; amarela/vermelha = escassez hídrica, custo extra por kWh). Impacto em R$ nesta conta."
     }
   },
-  
+
   "alerts": [
     {
-      "type": "error|warning|info|success",
-      "icon": "emoji apropriado",
-      "title": "Título curto do alerta",
-      "description": "Descrição detalhada",
-      "action": "Ação recomendada (opcional)"
+      "type": "success|info|warning|error",
+      "icon": "emoji",
+      "title": "Título curto",
+      "description": "Descrição detalhada e técnica. Para cada alerta seja específico com valores em R$ ou kWh.",
+      "action": "Ação recomendada se aplicável"
     }
   ],
-  
+
   "metrics": {
-    "cost_per_kwh_real": custo efetivo por kWh consumido,
-    "cost_per_kwh_without_solar": quanto seria sem solar,
-    "savings_this_month": economia em R$ neste mês,
-    "savings_percentage": % de economia vs conta sem solar,
-    "solar_efficiency": % de eficiência do sistema,
-    "self_consumption_rate": % de autoconsumo
+    "cost_per_kwh_real": custo_efetivo_por_kWh_consumido,
+    "cost_per_kwh_without_solar": quanto_seria_sem_solar,
+    "savings_this_month": economia_em_R$,
+    "savings_percentage": percentual_de_economia,
+    "solar_efficiency": eficiência_em_percentual,
+    "self_consumption_rate": taxa_de_autoconsumo
   },
-  
+
   "recommendations": [
     {
       "priority": "alta|media|baixa",
       "title": "Título da recomendação",
-      "description": "Descrição detalhada do que fazer",
+      "description": "Descrição técnica e acionável",
       "estimated_savings": "Economia estimada se aplicável"
     }
   ],
-  
+
   "bill_score": {
-    "value": nota de 0 a 100,
+    "value": nota_0_a_100,
     "label": "Excelente|Muito Bom|Bom|Regular|Atenção|Crítico",
-    "factors": ["fatores que influenciaram a nota"]
+    "factors": ["fatores que influenciaram a nota — seja específico"]
   }
 }
 
-REGRAS:
-1. Seja DIDÁTICO - explique como se estivesse conversando com alguém que não entende de energia
-2. Use linguagem ACESSÍVEL, evite jargões técnicos
-3. Destaque PROBLEMAS encontrados (multas, eficiência baixa, cobranças irregulares)
-4. Calcule ECONOMIA real proporcionada pelo sistema solar
-5. Gere alertas para qualquer anomalia
-6. Se houver service_items ou installment_items nos dados, gere alerta e explique que esses serviços/parcelamentos estão aumentando o valor da conta
-7. O custo de disponibilidade mínimo para GRUPO B depende do tipo de ligação: Monofásico = 30 kWh, Bifásico = 50 kWh, Trifásico = 100 kWh. Se connection_type for trifasico, o valor mínimo da conta inclui pelo menos 100 kWh × tarifa + CIP + impostos, podendo superar R$100. Mencione isso na análise se relevante.
-8. Retorne APENAS o JSON válido, sem markdown`;
+REGRAS ABSOLUTAS:
+1. PROFESSOR: explique cada componente como se o cliente nunca tivesse visto uma conta de luz
+2. NÚMEROS REAIS: use sempre os valores exatos extraídos da conta, nunca genéricos
+3. SOLAR COBRIU O MÍNIMO: se solarCoveredMinimum = true, destaque isso positivamente — "seu sistema compensou tudo que era possível, a conta só tem o mínimo obrigatório"
+4. CRÉDITOS OUTRAS UCs: se creditsToOtherAccounts = true, explique o mecanismo de transferência de créditos entre unidades vinculadas (SCEE)
+5. COBRANÇAS EXTRAS: liste TODOS os service_items e installment_items com nome e valor. Se other_charges > 0 sem itens detalhados, alerte para verificar a fatura original
+6. IMPOSTOS: explique ICMS, PIS, COFINS linha a linha com valores e alíquotas reais
+7. Retorne APENAS JSON válido, sem markdown, sem explicações fora do JSON`;
 
   console.log("🧠 ETAPA 2: Iniciando análise especialista...");
 
