@@ -260,7 +260,7 @@ export default function Index() {
   };
 
   const isProcessing = step !== "idle" && step !== "completed" && step !== "error";
-  const canAnalyze = file && solarGeneration && !isProcessing;
+  const canAnalyze = file && solarGeneration && !isProcessing && !pdfNeedsPassword;
 
   return (
     <div className="min-h-screen bg-background">
@@ -303,7 +303,51 @@ export default function Index() {
 
               {/* Upload Section */}
               <div className="space-y-4">
-                <BillUpload file={file} onFileSelect={setFile} onClear={() => setFile(null)} />
+                <BillUpload file={file} onFileSelect={handleFileSelect} onClear={handleClearFile} />
+
+                {/* PDF Password Field */}
+                <AnimatePresence>
+                  {pdfNeedsPassword && file && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="p-4 rounded-xl bg-accent/50 border border-accent space-y-3">
+                        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                          <Lock className="h-4 w-4 text-primary" />
+                          PDF protegido por senha
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Este PDF requer uma senha para ser lido.
+                        </p>
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <Input
+                              type={showPassword ? "text" : "password"}
+                              placeholder="Senha do PDF"
+                              value={pdfPassword}
+                              onChange={(e) => setPdfPassword(e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && handleValidatePassword()}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowPassword(!showPassword)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            >
+                              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                          <Button onClick={handleValidatePassword} disabled={!pdfPassword || checkingPdf}>
+                            {checkingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : "Desbloquear"}
+                          </Button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 <SolarInput value={solarGeneration} onChange={setSolarGeneration} />
 
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
