@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { 
   ArrowLeft, 
   Upload,
@@ -9,7 +9,10 @@ import {
   Zap,
   Loader2,
   FileText,
-  X
+  X,
+  Lock,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import soloLogo from "@/assets/solo-logo.png";
 import { Button } from "@/components/ui/button";
@@ -19,6 +22,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { db, storage, functions } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
 import { AnalysisStepper, type AnalysisStep } from "@/components/AnalysisStepper";
+import { isPdfFile, pdfToImages, PdfPasswordRequiredError, PdfPasswordIncorrectError } from "@/lib/pdfToImages";
 
 const monthNames = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -36,6 +40,10 @@ export default function BillAnalyze() {
   const [expectedGeneration, setExpectedGeneration] = useState<number>(0);
   const [step, setStep] = useState<AnalysisStep>("idle");
   const [stepError, setStepError] = useState<string | undefined>();
+  const [pdfNeedsPassword, setPdfNeedsPassword] = useState(false);
+  const [pdfPassword, setPdfPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [checkingPdf, setCheckingPdf] = useState(false);
 
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -104,7 +112,7 @@ export default function BillAnalyze() {
     if (files && files.length > 0) {
       const droppedFile = files[0];
       if (isValidFileType(droppedFile)) {
-        setFile(droppedFile);
+        handleFileSelected(droppedFile);
       } else {
         toast({
           title: "Arquivo inválido",
@@ -119,11 +127,11 @@ export default function BillAnalyze() {
     return file.type.match(/^image\/(jpeg|png|webp)$/) || file.type === "application/pdf";
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
       if (isValidFileType(files[0])) {
-        setFile(files[0]);
+        await handleFileSelected(files[0]);
       } else {
         toast({
           title: "Arquivo inválido",
@@ -131,6 +139,41 @@ export default function BillAnalyze() {
           variant: "destructive",
         });
       }
+    }
+  };
+
+  const handleFileSelected = async (selectedFile: File) => {
+    setPdfNeedsPassword(false);
+    setPdfPassword("");
+    setFile(selectedFile);
+
+    if (isPdfFile(selectedFile)) {
+      setCheckingPdf(true);
+      try {
+        await pdfToImages(selectedFile, { maxPages: 1, scale: 0.5 });
+      } catch (err) {
+        if (err instanceof PdfPasswordRequiredError) {
+          setPdfNeedsPassword(true);
+        }
+      } finally {
+        setCheckingPdf(false);
+      }
+    }
+  };
+
+  const handleValidatePassword = async () => {
+    if (!file || !pdfPassword) return;
+    setCheckingPdf(true);
+    try {
+      await pdfToImages(file, { maxPages: 1, scale: 0.5, password: pdfPassword });
+      setPdfNeedsPassword(false);
+      toast({ title: "PDF desbloqueado!", description: "Senha aceita com sucesso." });
+    } catch (err) {
+      if (err instanceof PdfPasswordIncorrectError || err instanceof PdfPasswordRequiredError) {
+        toast({ title: "Senha incorreta", description: "Tente novamente com a senha correta.", variant: "destructive" });
+      }
+    } finally {
+      setCheckingPdf(false);
     }
   };
 
@@ -399,13 +442,64 @@ export default function BillAnalyze() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => setFile(null)}
+                      onClick={() => {
+                        setFile(null);
+                        setPdfNeedsPassword(false);
+                        setPdfPassword("");
+                      }}
                     >
                       <X className="h-4 w-4" />
                     </Button>
                   )}
                 </motion.div>
               )}
+
+              {/* PDF Password Field */}
+              <AnimatePresence>
+                {pdfNeedsPassword && file && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="p-4 rounded-xl bg-accent/50 border border-accent space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                        <Lock className="h-4 w-4 text-primary" />
+                        PDF protegido por senha
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Este PDF requer uma senha para ser lido. Digite a senha abaixo.
+                      </p>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Input
+                            type={showPassword ? "text" : "password"}
+                            placeholder="Senha do PDF"
+                            value={pdfPassword}
+                            onChange={(e) => setPdfPassword(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleValidatePassword()}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          >
+                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                        <Button
+                          onClick={handleValidatePassword}
+                          disabled={!pdfPassword || checkingPdf}
+                          size="default"
+                        >
+                          {checkingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : "Desbloquear"}
+                        </Button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* Monitored Generation */}
@@ -450,7 +544,7 @@ export default function BillAnalyze() {
               size="lg"
               className="w-full"
               onClick={handleSubmit}
-              disabled={!file || !monitoredGeneration || isLoading}
+              disabled={!file || !monitoredGeneration || isLoading || pdfNeedsPassword}
             >
               {isLoading ? (
                 <>
