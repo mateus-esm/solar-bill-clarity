@@ -40,6 +40,10 @@ export default function BillAnalyze() {
   const [expectedGeneration, setExpectedGeneration] = useState<number>(0);
   const [step, setStep] = useState<AnalysisStep>("idle");
   const [stepError, setStepError] = useState<string | undefined>();
+  const [pdfNeedsPassword, setPdfNeedsPassword] = useState(false);
+  const [pdfPassword, setPdfPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [checkingPdf, setCheckingPdf] = useState(false);
 
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
