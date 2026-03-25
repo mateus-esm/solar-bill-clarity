@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { 
   ArrowLeft, 
   Upload,
@@ -9,7 +9,10 @@ import {
   Zap,
   Loader2,
   FileText,
-  X
+  X,
+  Lock,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import soloLogo from "@/assets/solo-logo.png";
 import { Button } from "@/components/ui/button";
@@ -19,6 +22,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { db, storage, functions } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
 import { AnalysisStepper, type AnalysisStep } from "@/components/AnalysisStepper";
+import { isPdfFile, pdfToImages, PdfPasswordRequiredError, PdfPasswordIncorrectError } from "@/lib/pdfToImages";
 
 const monthNames = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
