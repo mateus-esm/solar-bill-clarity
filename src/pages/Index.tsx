@@ -356,16 +356,6 @@ export default function Index() {
             >
               {/* Hero */}
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
-                <div
-                  className="mx-auto mb-5 inline-flex items-center gap-2 px-3 py-1.5 border"
-                  style={{
-                    borderRadius: "var(--radius)",
-                    borderColor: "rgb(255 72 30 / 0.3)",
-                    background: "rgb(255 72 30 / 0.08)",
-                  }}
-                >
-                  <Zap className="h-3.5 w-3.5 text-primary" />
-                </div>
                 <h1 className="text-3xl font-bold text-foreground sm:text-4xl leading-tight" style={{ letterSpacing: "-0.025em" }}>
                   Entenda sua <span className="gradient-text">conta de energia</span>
                 </h1>
