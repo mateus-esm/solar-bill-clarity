@@ -365,7 +365,6 @@ export default function Index() {
                   }}
                 >
                   <Zap className="h-3.5 w-3.5 text-primary" />
-                  <span className="text-xs font-medium text-primary tracking-wide uppercase">Bill Clarifier</span>
                 </div>
                 <h1 className="text-3xl font-bold text-foreground sm:text-4xl leading-tight" style={{ letterSpacing: "-0.025em" }}>
                   Entenda sua <span className="gradient-text">conta de energia</span>
