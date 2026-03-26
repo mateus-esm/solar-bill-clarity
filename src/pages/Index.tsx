@@ -596,6 +596,7 @@ export default function Index() {
 
         <LeadCaptureForm 
           isOpen={step === "gate"} 
+          onClose={() => { setStep("idle"); }}
           onSuccess={handleLeadSuccess} 
           hasSolar={hasSolar} 
           analysisSummary={analysisResult} 
