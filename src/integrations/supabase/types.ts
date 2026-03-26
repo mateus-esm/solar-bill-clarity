@@ -250,6 +250,69 @@ export type Database = {
           },
         ]
       }
+      leads: {
+        Row: {
+          analysis_summary: Json | null
+          converted_user_id: string | null
+          created_at: string
+          email: string
+          has_solar: boolean
+          id: string
+          installed_potency_kwp: number | null
+          monthly_generation_kwh: number | null
+          name: string
+          panel_count: number | null
+          panel_power_watts: number | null
+          requested_proposal: boolean | null
+          source: string | null
+          updated_at: string
+          utm_campaign: string | null
+          utm_medium: string | null
+          utm_source: string | null
+          whatsapp: string
+        }
+        Insert: {
+          analysis_summary?: Json | null
+          converted_user_id?: string | null
+          created_at?: string
+          email: string
+          has_solar?: boolean
+          id?: string
+          installed_potency_kwp?: number | null
+          monthly_generation_kwh?: number | null
+          name: string
+          panel_count?: number | null
+          panel_power_watts?: number | null
+          requested_proposal?: boolean | null
+          source?: string | null
+          updated_at?: string
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+          whatsapp: string
+        }
+        Update: {
+          analysis_summary?: Json | null
+          converted_user_id?: string | null
+          created_at?: string
+          email?: string
+          has_solar?: boolean
+          id?: string
+          installed_potency_kwp?: number | null
+          monthly_generation_kwh?: number | null
+          name?: string
+          panel_count?: number | null
+          panel_power_watts?: number | null
+          requested_proposal?: boolean | null
+          source?: string | null
+          updated_at?: string
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+          whatsapp?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
