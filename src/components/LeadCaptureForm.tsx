@@ -35,12 +35,13 @@ export type LeadFormData = z.infer<typeof formSchema>;
 
 interface LeadCaptureFormProps {
   isOpen: boolean;
+  onClose?: () => void;
   onSuccess: (leadId: string, leadData: LeadFormData) => void;
   hasSolar: boolean;
   analysisSummary?: any;
 }
 
-export function LeadCaptureForm({ isOpen, onSuccess, hasSolar, analysisSummary }: LeadCaptureFormProps) {
+export function LeadCaptureForm({ isOpen, onClose, onSuccess, hasSolar, analysisSummary }: LeadCaptureFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
@@ -71,17 +72,18 @@ export function LeadCaptureForm({ isOpen, onSuccess, hasSolar, analysisSummary }
       // Remover máscara do whatsapp para salvar no banco
       const cleanWhatsapp = data.whatsapp.replace(/\D/g, "");
       
-      const { data: leadData, error } = await db("leads")
+      const generatedId = crypto.randomUUID();
+      
+      const { error } = await db("leads")
         .insert({
+          id: generatedId,
           name: data.name,
           email: data.email,
           whatsapp: cleanWhatsapp,
           has_solar: hasSolar,
           analysis_summary: analysisSummary || null,
           source: "lead_magnet_gate"
-        })
-        .select("id")
-        .single();
+        });
 
       if (error) throw error;
 
@@ -90,7 +92,7 @@ export function LeadCaptureForm({ isOpen, onSuccess, hasSolar, analysisSummary }
         description: "Análise liberada com sucesso.",
       });
 
-      onSuccess(leadData.id, data);
+      onSuccess(generatedId, data);
     } catch (error) {
       console.error("Error saving lead:", error);
       toast({
@@ -104,8 +106,8 @@ export function LeadCaptureForm({ isOpen, onSuccess, hasSolar, analysisSummary }
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={() => {}}>
-      <DialogContent className="sm:max-w-md [&>button]:hidden">
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open && onClose) onClose(); }}>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader className="text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <Zap className="h-6 w-6 text-primary" />
