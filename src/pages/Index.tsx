@@ -14,7 +14,11 @@ import {
   SolarEnergyCard,
   SystemStatusCard,
   ActionCard,
+  NonSolarResultCards,
 } from "@/components/clarifier";
+import { FreemiumBanner } from "@/components/FreemiumBanner";
+import { LeadCaptureForm, type LeadFormData } from "@/components/LeadCaptureForm";
+import { useSessionStorage } from "@/hooks/useSessionStorage";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { pdfToImages, isPdfFile, PdfPasswordRequiredError, PdfPasswordIncorrectError } from "@/lib/pdfToImages";
@@ -53,15 +57,23 @@ interface ClarifierResult {
 
 export default function Index() {
   const [file, setFile] = useState<File | null>(null);
-  const [solarGeneration, setSolarGeneration] = useState("");
-  const [step, setStep] = useState<AnalysisStep>("idle");
+  
+  // States persisted via sessionStorage
+  const [hasSolar, setHasSolar] = useSessionStorage<boolean>("solo_has_solar", true);
+  const [solarGeneration, setSolarGeneration] = useSessionStorage<string>("solo_solar_generation", "");
+  const [installedPotency, setInstalledPotency] = useSessionStorage<string>("solo_installed_potency", "");
+  const [step, setStep] = useSessionStorage<AnalysisStep | "gate">("solo_analysis_step", "idle");
+  const [analysisResult, setAnalysisResult] = useSessionStorage<ClarifierResult | any | null>("solo_analysis_result", null);
+  const [showResults, setShowResults] = useSessionStorage<boolean>("solo_show_results", false);
+  const [leadId, setLeadId] = useSessionStorage<string | null>("solo_lead_id", null);
+
   const [stepError, setStepError] = useState<string | undefined>();
-  const [showResults, setShowResults] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<ClarifierResult | null>(null);
   const [pdfNeedsPassword, setPdfNeedsPassword] = useState(false);
   const [pdfPassword, setPdfPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [checkingPdf, setCheckingPdf] = useState(false);
+  const [isCrmLoading, setIsCrmLoading] = useState(false);
+  
   const { toast } = useToast();
 
   const toNumber = (value: unknown, fallback = 0): number => {
@@ -126,7 +138,11 @@ export default function Index() {
   };
 
   const handleAnalyze = async () => {
-    if (!file || !solarGeneration) return;
+    if (!file) return;
+    if (hasSolar && !solarGeneration && !installedPotency) {
+      toast({ title: "Informação Necessária", description: "Por favor, informe a geração ou a potência.", variant: "destructive" });
+      return;
+    }
 
     setStepError(undefined);
     setStep("uploading");
@@ -145,9 +161,10 @@ export default function Index() {
         imageBase64 = await fileToBase64(file);
       }
 
-      // 2) Extracting data via OCR
+      // Extracting data via OCR
       setStep("extracting");
-      const monitoredGeneration = parseFloat(solarGeneration);
+      const monitoredGeneration = hasSolar && solarGeneration ? parseFloat(solarGeneration) : 0;
+      const potencyKwp = hasSolar && installedPotency ? parseFloat(installedPotency) : undefined;
 
       const { data, error } = await supabase.functions.invoke("analyze-bill", {
         body: {
@@ -155,81 +172,93 @@ export default function Index() {
           fileType: imageMimeType,
           monitoredGeneration,
           quickAnalysis: true,
+          has_solar: hasSolar,
+          installed_potency_kwp: potencyKwp
         },
       });
 
       if (error) throw error;
       if (!data.success) throw new Error(data.error || "Erro na análise");
 
-      // 3) Calculating – build clarifier result
+      // Calculating
       setStep("calculating");
       const result = data.data;
       const rawData = data.rawData || result;
 
       // === CÁLCULOS DO CLARIFIER ===
-
-      // Taxas fixas (Valor Mínimo Possível)
       const availabilityCost = toNumber(result.availability_cost || rawData.availability_cost, 0);
       const publicLightingCost = toNumber(result.public_lighting_cost || rawData.public_lighting_cost, 0);
       const minimumPossible = availabilityCost + publicLightingCost;
-
-      // Valor total pago
       const totalPaid = toNumber(result.total_amount || rawData.total_amount, 0);
-
-      // Consumo não compensado (diferença do mínimo)
       const uncompensatedCost = Math.max(0, totalPaid - minimumPossible);
 
-      // Dados solares
-      const generated = monitoredGeneration;
-      const injected = toNumber(result.injected_energy_kwh || rawData.injected_energy_kwh, 0);
-      const compensated = toNumber(result.compensated_energy_kwh || rawData.compensated_energy_kwh, 0);
-      const creditsBalance = toNumber(result.current_credits_kwh || rawData.current_credits_kwh, 0);
+      if (hasSolar) {
+        const generated = monitoredGeneration;
+        const injected = toNumber(result.injected_energy_kwh || rawData.injected_energy_kwh, 0);
+        const compensated = toNumber(result.compensated_energy_kwh || rawData.compensated_energy_kwh, 0);
+        const creditsBalance = toNumber(result.current_credits_kwh || rawData.current_credits_kwh, 0);
+        const expectedGeneration = toNumber(result.expected_generation_kwh, 0) || generated;
+        const billedConsumption = toNumber(result.billed_consumption_kwh || rawData.measured_consumption_kwh, 0);
+        const geracaoNecessaria = Math.max(0, billedConsumption - compensated);
 
-      // Geração esperada: usa valor do sistema ou estima 150 kWh/kWp
-      // Se não temos potência instalada, estimamos baseado no que foi monitorado
-      const expectedGeneration = toNumber(result.expected_generation_kwh, 0) || generated;
+        let systemStatus: ClarifierResult["systemStatus"] = "adequate";
+        if (generated >= geracaoNecessaria) {
+          systemStatus = "adequate";
+        } else if (generated >= geracaoNecessaria * 0.8) {
+          systemStatus = "slightly_below";
+        } else {
+          systemStatus = "below_needed";
+        }
 
-      // Status do sistema
-      const billedConsumption = toNumber(result.billed_consumption_kwh || rawData.measured_consumption_kwh, 0);
-      const geracaoNecessaria = Math.max(0, billedConsumption - compensated);
+        const extraGenerationNeeded = Math.max(0, geracaoNecessaria - generated);
+        const expansionKwp = extraGenerationNeeded > 0 ? extraGenerationNeeded / 150 : undefined;
+        const expansionModules = expansionKwp ? Math.ceil(expansionKwp / 0.4) : undefined;
 
-      let systemStatus: ClarifierResult["systemStatus"] = "adequate";
-      if (generated >= geracaoNecessaria) {
-        systemStatus = "adequate";
-      } else if (generated >= geracaoNecessaria * 0.8) {
-        systemStatus = "slightly_below";
+        setAnalysisResult({
+          type: "solar",
+          totalPaid,
+          minimumPossible,
+          availabilityCost,
+          publicLightingCost,
+          uncompensatedCost,
+          generated,
+          injected,
+          compensated,
+          creditsBalance,
+          expectedGeneration,
+          actualGeneration: generated,
+          generationGap: Math.max(0, expectedGeneration - generated),
+          systemStatus,
+          extraGenerationNeeded,
+          expansionKwp,
+          expansionModules,
+          distributor: result.distributor || rawData.distributor || "Não identificada",
+          diagnosisDetails: result.diagnosis_details
+        });
       } else {
-        systemStatus = "below_needed";
+        setAnalysisResult({
+          type: "non-solar",
+          totalPaid,
+          minimumPossible,
+          availabilityCost,
+          publicLightingCost,
+          uncompensatedCost,
+          recommendedKwp: result.recommended_potency_kwp,
+          recommendedModules: result.recommended_modules,
+          potentialSavings: result.potential_monthly_savings,
+          distributor: result.distributor || rawData.distributor || "Não identificada",
+          diagnosisDetails: result.diagnosis_details,
+          billedConsumption: toNumber(result.billed_consumption_kwh || rawData.measured_consumption_kwh, 0)
+        });
       }
 
-      // Expansão necessária
-      const extraGenerationNeeded = Math.max(0, geracaoNecessaria - generated);
-      const expansionKwp = extraGenerationNeeded > 0 ? extraGenerationNeeded / 150 : undefined;
-      const expansionModules = expansionKwp ? Math.ceil(expansionKwp / 0.4) : undefined; // 400W por módulo
-
-      setAnalysisResult({
-        totalPaid,
-        minimumPossible,
-        availabilityCost,
-        publicLightingCost,
-        uncompensatedCost,
-        generated,
-        injected,
-        compensated,
-        creditsBalance,
-        expectedGeneration,
-        actualGeneration: generated,
-        generationGap: Math.max(0, expectedGeneration - generated),
-        systemStatus,
-        extraGenerationNeeded,
-        expansionKwp,
-        expansionModules,
-        distributor: result.distributor || rawData.distributor || "Não identificada",
-      });
-
-      // 4) Completed
-      setStep("completed");
-      setShowResults(true);
+      // Show the gate instead of results directly if no leadId
+      if (!leadId) {
+        setStep("gate");
+      } else {
+        setStep("completed");
+        setShowResults(true);
+      }
 
       toast({ title: "Análise concluída!", description: "Veja o resultado da sua conta." });
     } catch (err) {
@@ -244,12 +273,21 @@ export default function Index() {
   const handleReset = () => {
     setFile(null);
     setSolarGeneration("");
+    setInstalledPotency("");
+    setHasSolar(true);
     setShowResults(false);
     setAnalysisResult(null);
     setStep("idle");
     setStepError(undefined);
     setPdfNeedsPassword(false);
     setPdfPassword("");
+    // We intentionally do not reset leadId so they don't have to fill the form again
+  };
+
+  const handleLeadSuccess = (id: string, data: LeadFormData) => {
+    setLeadId(id);
+    setStep("completed");
+    setShowResults(true);
   };
 
   const handleExpansionClick = () => {
@@ -262,8 +300,33 @@ export default function Index() {
     window.open(`https://wa.me/5500000000000?text=${message}`, "_blank");
   };
 
-  const isProcessing = step !== "idle" && step !== "completed" && step !== "error";
-  const canAnalyze = file && solarGeneration && !isProcessing && !pdfNeedsPassword;
+  const handleReceiveProposal = async () => {
+    setIsCrmLoading(true);
+    try {
+      if (leadId) {
+        await supabase.functions.invoke("trigger-crm", {
+          body: { leadId }
+        });
+        
+        // Update local status just in case
+        await supabase.from("leads").update({ requested_proposal: true }).eq("id", leadId);
+      }
+      
+      const message = encodeURIComponent(
+        `Olá! Tenho interesse em uma proposta para sistema de energia solar. ` +
+        `Vi que meu sistema ideal seria de ${analysisResult?.recommendedKwp?.toFixed(1) || 0} kWp, ` +
+        `o que me faria economizar cerca de R$ ${analysisResult?.potentialSavings?.toFixed(2) || 0} por mês.`
+      );
+      window.open(`https://wa.me/5500000000000?text=${message}`, "_blank");
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Erro", description: "Ocorreu um problema.", variant: "destructive" });
+    } finally {
+      setIsCrmLoading(false);
+    }
+  };
+
+  const canAnalyze = file && !pdfNeedsPassword && step !== "uploading" && step !== "extracting" && step !== "calculating";
 
   return (
     <div className="min-h-screen bg-background">
@@ -312,11 +375,19 @@ export default function Index() {
               </motion.div>
 
               {/* Stepper */}
-              <AnalysisStepper currentStep={step} errorMessage={stepError} />
+              <AnalysisStepper currentStep={step === "gate" ? "calculating" : step as AnalysisStep} errorMessage={stepError} />
 
               {/* Upload Section */}
               <div className="space-y-4">
-                <BillUpload file={file} onFileSelect={handleFileSelect} onClear={handleClearFile} />
+                {step === "idle" || step === "error" ? (
+                  <BillUpload file={file} onFileSelect={handleFileSelect} onClear={handleClearFile} />
+                ) : (
+                  <div className="rounded-lg bg-primary/10 p-4 border border-primary/20 flex flex-col items-center min-h-[160px] justify-center text-center">
+                    <Loader2 className="h-8 w-8 text-primary animate-spin mb-3" />
+                    <p className="font-medium text-foreground">Analisando sua conta...</p>
+                    <p className="text-sm text-muted-foreground mt-1">Nossa IA está extraindo e processando seus dados.</p>
+                  </div>
+                )}
 
                 {/* PDF Password Field */}
                 <AnimatePresence>
@@ -361,23 +432,70 @@ export default function Index() {
                   )}
                 </AnimatePresence>
 
-                <SolarInput value={solarGeneration} onChange={setSolarGeneration} />
+                {file && (step === "idle" || step === "error") && (
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 rounded-xl border border-border bg-card p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-medium text-foreground text-sm">Você já possui energia solar?</h3>
+                        <p className="text-xs text-muted-foreground">Isso nos ajuda a personalizar sua análise</p>
+                      </div>
+                      <div className="flex items-center bg-muted rounded-full p-1 cursor-pointer">
+                        <div 
+                          className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${!hasSolar ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
+                          onClick={() => setHasSolar(false)}
+                        >
+                          Não
+                        </div>
+                        <div 
+                          className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${hasSolar ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
+                          onClick={() => setHasSolar(true)}
+                        >
+                          Sim
+                        </div>
+                      </div>
+                    </div>
 
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
-                  <Button variant="gradient" size="xl" className="w-full" onClick={handleAnalyze} disabled={!canAnalyze}>
-                    {isProcessing ? (
-                      <>
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                        Processando...
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="h-5 w-5" />
-                        Analisar Conta
-                      </>
-                    )}
-                  </Button>
-                </motion.div>
+                    <AnimatePresence>
+                      {hasSolar && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="space-y-4 pt-2 border-t border-border overflow-hidden"
+                        >
+                          <div>
+                            <label className="text-xs font-medium text-foreground mb-1 block">Geração no Mês (kWh) *</label>
+                            <Input 
+                              value={solarGeneration} 
+                              onChange={(e) => setSolarGeneration(e.target.value)} 
+                              placeholder="Ex: 500" 
+                              type="number"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs font-medium text-foreground mb-1 block">Potência Instalada (kWp) - Opcional</label>
+                            <Input 
+                              value={installedPotency} 
+                              onChange={(e) => setInstalledPotency(e.target.value)} 
+                              placeholder="Ex: 4.5" 
+                              type="number"
+                              step="0.01"
+                            />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                )}
+
+                {step === "idle" || step === "error" ? (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
+                    <Button variant="gradient" size="xl" className="w-full" onClick={handleAnalyze} disabled={!canAnalyze}>
+                      <Zap className="h-5 w-5 mr-2" />
+                      Analisar Conta
+                    </Button>
+                  </motion.div>
+                ) : null}
 
                 {step === "error" && (
                   <Button variant="outline" className="w-full" onClick={handleReset}>
@@ -409,7 +527,7 @@ export default function Index() {
                 animate={{ opacity: 1, y: 0 }}
                 className="mx-auto max-w-2xl space-y-4"
               >
-                {/* Header with Reset Button */}
+                {/* Common Result Area */}
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <h2 className="text-xl font-bold text-foreground">Resultado da Análise</h2>
@@ -421,58 +539,77 @@ export default function Index() {
                   </Button>
                 </div>
 
-                {/* Motivational quote */}
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="text-center px-4 py-3 bg-muted/30 rounded-lg border border-border"
-                >
-                  <p className="text-sm text-muted-foreground italic">
-                    "Energia solar não zera a conta — ela reduz o consumo.
-                    <br />
-                    Aqui está exatamente como isso aconteceu no seu caso."
-                  </p>
-                </motion.div>
+                {analysisResult.type === "solar" ? (
+                  <>
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-center px-4 py-3 bg-muted/30 rounded-lg border border-border"
+                    >
+                      <p className="text-sm text-muted-foreground italic">
+                        "Energia solar não zera a conta — ela reduz o consumo.
+                        <br />
+                        Aqui está exatamente como isso aconteceu no seu caso."
+                      </p>
+                    </motion.div>
 
-                {/* Card 1: Resumo */}
-                <BillSummaryCard
-                  totalPaid={analysisResult.totalPaid}
-                  minimumPossible={analysisResult.minimumPossible}
-                />
+                    <BillSummaryCard
+                      totalPaid={analysisResult.totalPaid}
+                      minimumPossible={analysisResult.minimumPossible}
+                    />
 
-                {/* Card 2: Composição */}
-                <CostCompositionCard
-                  availabilityCost={analysisResult.availabilityCost}
-                  publicLightingCost={analysisResult.publicLightingCost}
-                  uncompensatedCost={analysisResult.uncompensatedCost}
-                />
+                    <CostCompositionCard
+                      availabilityCost={analysisResult.availabilityCost}
+                      publicLightingCost={analysisResult.publicLightingCost}
+                      uncompensatedCost={analysisResult.uncompensatedCost}
+                    />
 
-                {/* Card 3: Solar */}
-                <SolarEnergyCard
-                  generated={analysisResult.generated}
-                  injected={analysisResult.injected}
-                  compensated={analysisResult.compensated}
-                  creditsBalance={analysisResult.creditsBalance}
-                />
+                    <SolarEnergyCard
+                      generated={analysisResult.generated}
+                      injected={analysisResult.injected}
+                      compensated={analysisResult.compensated}
+                      creditsBalance={analysisResult.creditsBalance}
+                    />
 
-                {/* Card 4: Status do Sistema */}
-                <SystemStatusCard
-                  expectedGeneration={analysisResult.expectedGeneration}
-                  actualGeneration={analysisResult.actualGeneration}
-                  status={analysisResult.systemStatus}
-                />
+                    <SystemStatusCard
+                      expectedGeneration={analysisResult.expectedGeneration}
+                      actualGeneration={analysisResult.actualGeneration}
+                      status={analysisResult.systemStatus}
+                    />
 
-                {/* Card 5: Ação */}
-                <ActionCard
-                  extraGenerationNeeded={analysisResult.extraGenerationNeeded}
-                  expansionKwp={analysisResult.expansionKwp}
-                  expansionModules={analysisResult.expansionModules}
-                  onExpansionClick={handleExpansionClick}
+                    <ActionCard
+                      extraGenerationNeeded={analysisResult.extraGenerationNeeded}
+                      expansionKwp={analysisResult.expansionKwp}
+                      expansionModules={analysisResult.expansionModules}
+                      onExpansionClick={handleExpansionClick}
+                    />
+                  </>
+                ) : (
+                  <NonSolarResultCards
+                    totalPaid={analysisResult.totalPaid}
+                    uncompensatedCost={analysisResult.uncompensatedCost}
+                    recommendedKwp={analysisResult.recommendedKwp}
+                    recommendedModules={analysisResult.recommendedModules}
+                    potentialSavings={analysisResult.potentialSavings}
+                    onReceiveProposal={handleReceiveProposal}
+                    isLoading={isCrmLoading}
+                  />
+                )}
+                
+                <FreemiumBanner 
+                  onSignUp={() => window.location.href = `/auth?returnTo=dashboard`} 
                 />
               </motion.div>
             )
           )}
         </AnimatePresence>
+
+        <LeadCaptureForm 
+          isOpen={step === "gate"} 
+          onSuccess={handleLeadSuccess} 
+          hasSolar={hasSolar} 
+          analysisSummary={analysisResult} 
+        />
       </main>
 
       {/* Footer */}

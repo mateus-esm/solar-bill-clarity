@@ -15,6 +15,9 @@ interface BillAnalysisRequest {
   expectedGeneration?: number;
   monitoredGeneration: number;
   quickAnalysis?: boolean;
+  has_solar?: boolean;
+  current_generation_kwh?: number;
+  installed_potency_kwp?: number;
 }
 
 // Schema expandido para OCR de alta precisão
@@ -1176,7 +1179,10 @@ serve(async (req) => {
       fileType,
       expectedGeneration = 0, 
       monitoredGeneration,
-      quickAnalysis = false 
+      quickAnalysis = false,
+      has_solar = true,
+      current_generation_kwh,
+      installed_potency_kwp
     } = requestData;
 
     analysisIdForError = analysisId;
@@ -1187,7 +1193,8 @@ serve(async (req) => {
       hasBase64: !!fileBase64,
       expectedGeneration, 
       monitoredGeneration,
-      quickAnalysis 
+      quickAnalysis,
+      has_solar
     });
 
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
@@ -1266,9 +1273,49 @@ serve(async (req) => {
     if (quickAnalysis) {
       console.log("📋 Quick analysis mode - skipping specialist analysis");
       
+      let recommended_potency_kwp: number | undefined;
+      let recommended_modules: number | undefined;
+      let potential_monthly_savings: number | undefined;
+      let system_diagnosis = "adequate";
+      let diagnosis_details = "";
+
+      // Logic for non-solar leads
+      if (!has_solar) {
+        system_diagnosis = "no_solar";
+        
+        // Sizing formula: (Consumption / 120) / 0.8
+        const consumptionForCalc = rawData.measured_consumption_kwh || 0;
+        if (consumptionForCalc > 0) {
+          recommended_potency_kwp = (consumptionForCalc / 120) / 0.8;
+          recommended_modules = Math.ceil(recommended_potency_kwp / 0.55); // Assumindo módulos de 550W
+          
+          const availability = rawData.availability_cost || 0;
+          const publicLighting = rawData.public_lighting_cost || 0;
+          const totalPaid = rawData.total_amount || 0;
+          
+          // Economia = Total Pago - (Custo Disponibilidade + Iluminação)
+          potential_monthly_savings = Math.max(0, totalPaid - (availability + publicLighting));
+          
+          diagnosis_details = `Seu consumo de ${consumptionForCalc} kWh exigiria um sistema de aproximadamente ${recommended_potency_kwp.toFixed(2)} kWp (${recommended_modules} módulos).`;
+        } else {
+          diagnosis_details = "Não conseguimos extrair seu consumo com precisão para dimensionar o sistema ideal.";
+        }
+      } else {
+        // Logic for solar leads
+        if (installed_potency_kwp && current_generation_kwh !== undefined) {
+          const expectedGenerationKwh = installed_potency_kwp * 100; // Simplified expectation
+          if (current_generation_kwh < expectedGenerationKwh * 0.9) {
+            system_diagnosis = "underperforming";
+            diagnosis_details = `Seu sistema gerou ${current_generation_kwh} kWh, mas um sistema de ${installed_potency_kwp} kWp deveria gerar perto de ${expectedGenerationKwh} kWh/mês.`;
+          } else {
+            diagnosis_details = `Seu sistema está gerando ${current_generation_kwh} kWh/mês, o que é compatível com sua potência de ${installed_potency_kwp} kWp.`;
+          }
+        }
+      }
+
       // Generate basic alerts
       const alerts: string[] = [];
-      if (generationEfficiency < 80 && expectedGeneration > 0) {
+      if (has_solar && generationEfficiency < 80 && expectedGeneration > 0) {
         alerts.push(`Geração abaixo do esperado: ${generationEfficiency.toFixed(1)}%`);
       }
       if ((rawData.fines_amount || 0) > 0) {
@@ -1284,6 +1331,12 @@ serve(async (req) => {
           data: {
             // Dados básicos normalizados para compatibilidade
             ...rawData,
+            has_solar,
+            recommended_potency_kwp,
+            recommended_modules,
+            potential_monthly_savings,
+            system_diagnosis,
+            diagnosis_details,
             billed_consumption_kwh: rawData.measured_consumption_kwh,
             pis_cofins_cost: (rawData.pis_cost || 0) + (rawData.cofins_cost || 0),
             fine_amount: rawData.fines_amount,

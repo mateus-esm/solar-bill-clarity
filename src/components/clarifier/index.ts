@@ -6,3 +6,4 @@ export { ActionCard } from "./ActionCard";
 export { BillScoreGauge } from "./BillScoreGauge";
 export { CostPieChart } from "./CostPieChart";
 export { ContextualFAQ } from "./ContextualFAQ";
+export { NonSolarResultCards } from "./NonSolarResultCards";
