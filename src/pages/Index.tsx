@@ -20,6 +20,7 @@ import { FreemiumBanner } from "@/components/FreemiumBanner";
 import { LeadCaptureForm, type LeadFormData } from "@/components/LeadCaptureForm";
 import { useSessionStorage } from "@/hooks/useSessionStorage";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
 import { pdfToImages, isPdfFile, PdfPasswordRequiredError, PdfPasswordIncorrectError } from "@/lib/pdfToImages";
 
@@ -309,7 +310,7 @@ export default function Index() {
         });
         
         // Update local status just in case
-        await supabase.from("leads").update({ requested_proposal: true }).eq("id", leadId);
+        await db("leads").update({ requested_proposal: true }).eq("id", leadId);
       }
       
       const message = encodeURIComponent(

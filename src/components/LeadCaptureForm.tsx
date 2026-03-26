@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
 
 const formSchema = z.object({
@@ -71,8 +71,7 @@ export function LeadCaptureForm({ isOpen, onSuccess, hasSolar, analysisSummary }
       // Remover máscara do whatsapp para salvar no banco
       const cleanWhatsapp = data.whatsapp.replace(/\D/g, "");
       
-      const { data: leadData, error } = await supabase
-        .from("leads")
+      const { data: leadData, error } = await db("leads")
         .insert({
           name: data.name,
           email: data.email,
