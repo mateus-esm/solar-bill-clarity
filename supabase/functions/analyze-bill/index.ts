@@ -594,6 +594,28 @@ INSTRUÇÕES ESPECIAIS PARA ENEL CEARÁ e distribuidoras similares:
 - A tabela de faturamento tem colunas: Descrição, Unid., Quant., Preço unit., Valor, Base Calc., Alíq.ICMS%, ICMS, Tarifa sem ICMS
 - Items de crédito (compensação solar) têm valores NEGATIVOS — mantenha o sinal negativo em total_value
 
+═══════════════════════════════════════
+REFERÊNCIA LEGISLATIVA E ESTRUTURAL (use para identificar campos com precisão):
+═══════════════════════════════════════
+
+ESTRUTURA OFICIAL ENEL CE / DISTRIBUIDORAS:
+- Energia Ativa Fornecida = consumo da rede (separado em TE e TUSD)
+- Energia Ativa Injetada = geração solar enviada à rede (pode aparecer como "Energia Atv Inj TE mUC" / "Energia Atv Inj TUSD mUC")
+- Energia Ativa Compensada = abatimento solar do consumo (pode aparecer como "En Atv Comp s/ICMS TE" / "En Atv Comp s/ICMS TUSD")
+- Tabela SCEE no rodapé: "Energia Injetada HFP no mês", "Saldo utilizado no mês", "Saldo atualizado", "Créditos a Expirar no próximo mês"
+- Colunas típicas da tabela de faturamento: Descrição | Unid. | Quant. | Preço unit. | Valor | Base Calc. | Alíq.ICMS% | ICMS | Tarifa sem ICMS
+- "Tipo de Ramal", "Tipo de Ligação", "Fases" indicam connection_type (monofasico/bifasico/trifasico)
+
+LEI 14.300/2022 - MARCOS IMPORTANTES (use para identificar campos SCEE com precisão):
+- Créditos de energia solar expiram em 60 meses (5 anos) — procure campo "Créditos a Expirar"
+- Custo de Disponibilidade obrigatório: Monofásico=30kWh, Bifásico=50kWh, Trifásico=100kWh
+- GD I (protocolo antes de 07/01/2023): compensação integral, sem cobrança de Fio B
+- GD II/III (protocolo após 07/01/2023): paga percentual crescente da TUSD sobre energia injetada ("Taxação do Sol")
+- Transferência de créditos entre UCs do mesmo titular é permitida via SCEE
+- Bandeiras tarifárias NÃO incidem sobre energia compensada
+- TUSDg = TUSD de Geração (apenas Grupo A / média e alta tensão)
+- Impostos: PIS/COFINS (federal), ICMS (estadual, CE ~25%), CIP/COSIP (municipal)
+
 REGRAS CRÍTICAS:
 1. Retorne APENAS o JSON, sem markdown, sem explicações, sem \`\`\`
 2. Use números decimais com PONTO (ex: 123.45, não 123,45)
