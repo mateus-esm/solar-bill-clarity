@@ -1,178 +1,114 @@
 
-# Plano: Migração do OCR para Lovable AI Gateway com Fallback
+
+# Plano: Enriquecer Agente Analisador com Lei 14.300 e Estrutura Enel CE
 
 ## Resumo
 
-Migrar a função `performOCRExtraction` no Edge Function `analyze-bill` para usar o **Lovable AI Gateway (Gemini)** como provedor principal, mantendo o **OpenAI GPT-4o** como fallback automático caso o Gemini falhe.
+Integrar o conhecimento oficial da **Lei 14.300/2022** (Marco Legal da GD) e da **estrutura de faturamento da Enel CE** nos dois prompts do pipeline (OCR e Analista Especialista), tornando a analise mais precisa e as explicacoes fundamentadas em legislacao.
 
 ---
 
-## Arquitetura da Solução
+## Conhecimento a Integrar
+
+### Da Lei 14.300/2022
+- **SCEE** (Sistema de Compensacao de Energia Eletrica): creditos valem 60 meses
+- **Fio B / "Taxacao do Sol"**: a partir de 07/01/2023, novos projetos pagam TUSD sobre energia injetada (transicao de 7-9 anos)
+- **GD I** (antes de 07/01/2023): isento da taxacao, regra antiga por ate 2045
+- **GD II/III** (apos 07/01/2023): pagam percentual crescente do Fio B
+- **Custo de Disponibilidade**: minimo obrigatorio (30/50/100 kWh) - nao some com solar
+- **TUSDg**: cobrada quando potencia da usina > demanda contratada (Grupo A)
+- **Transferencia de creditos**: permitida entre UCs do mesmo titular
+- **Bandeiras tarifarias**: nao se aplicam a energia compensada
+
+### Da Estrutura Enel CE
+- **Energia Ativa Injetada** = geracao solar enviada a rede
+- **Energia Ativa Compensada** = abatimento do consumo
+- **TE vs TUSD**: separacao obrigatoria na fatura
+- **SCEE no rodape**: Injetada HFP, Saldo utilizado, Saldo atualizado, Creditos a Expirar
+- **Impostos**: PIS/COFINS (federal), ICMS (estadual ~25% CE), CIP (municipal)
+- **Legislacao**: REN ANEEL 1000/2021, REN ANEEL 1059/2023
+
+---
+
+## Alteracoes Tecnicas
+
+### Arquivo unico: `supabase/functions/analyze-bill/index.ts`
+
+### 1. Enriquecer OCR_PROMPT (~linha 452)
+
+Adicionar apos as instrucoes especiais para Enel (linha ~596) um bloco de referencia:
 
 ```text
-+------------------+
-|   analyze-bill   |
-+------------------+
-         |
-         v
-+------------------+     Sucesso     +------------------+
-|  Gemini (Lovable)|  ------------>  |  Retorna dados   |
-|    API Gateway   |                 |     extraídos    |
-+------------------+                 +------------------+
-         |
-         | Falha (erro, timeout, etc)
-         v
-+------------------+     Sucesso     +------------------+
-|   OpenAI GPT-4o  |  ------------>  |  Retorna dados   |
-|    (Fallback)    |                 |     extraídos    |
-+------------------+                 +------------------+
-         |
-         | Falha
-         v
-+------------------+
-|   Erro retornado |
-|    ao usuário    |
-+------------------+
+REFERENCIA LEGISLATIVA E ESTRUTURAL (use para identificar campos com precisao):
+
+ESTRUTURA OFICIAL ENEL CE / DISTRIBUIDORAS:
+- Energia Ativa Fornecida = consumo da rede (separado em TE e TUSD)
+- Energia Ativa Injetada = geracao solar (pode aparecer como "Energia Atv Inj TE mUC" / "Energia Atv Inj TUSD mUC")
+- Energia Ativa Compensada = abatimento solar do consumo
+- Tabela SCEE no rodape: "Energia Injetada HFP no mes", "Saldo utilizado no mes", "Saldo atualizado", "Creditos a Expirar no proximo mes"
+- Colunas da tabela: Descricao | Unid. | Quant. | Preco unit. | Valor | Base Calc. | Aliq.ICMS% | ICMS | Tarifa sem ICMS
+
+LEI 14.300/2022 - MARCOS IMPORTANTES:
+- Creditos de energia expiram em 60 meses
+- Custo de Disponibilidade: Monofasico=30kWh, Bifasico=50kWh, Trifasico=100kWh
+- GD I (protocolo antes 07/01/2023): compensacao integral, sem Fio B
+- GD II/III (protocolo apos 07/01/2023): paga percentual crescente da TUSD sobre energia injetada
+- Transferencia de creditos entre UCs do mesmo titular e permitida
+- Bandeiras tarifarias NAO incidem sobre energia compensada
 ```
 
----
+### 2. Enriquecer analystPrompt (~linha 930)
 
-## Alterações Técnicas
+Adicionar uma secao de contexto regulatorio ao prompt do analista:
 
-### 1. Modificar função `performOCRExtraction`
+```text
+CONTEXTO REGULATORIO (Lei 14.300/2022 - Marco Legal da GD):
+- SCEE: creditos de energia solar valem por 60 meses. Apos esse prazo, expiram.
+- CUSTO DE DISPONIBILIDADE: taxa minima obrigatoria pela conexao a rede. Monofasico=30kWh, Bifasico=50kWh, Trifasico=100kWh multiplicado pela tarifa. NAO desaparece com solar.
+- FIO B ("Taxacao do Sol"): projetos protocolados apos 07/01/2023 (GD II/III) pagam percentual crescente da TUSD sobre energia injetada. Projetos anteriores (GD I) mantem compensacao integral ate ~2045.
+- TE vs TUSD: TE = custo da energia em si. TUSD = custo do "fio" (transporte/distribuicao). Na fatura aparecem separados.
+- TRANSFERENCIA DE CREDITOS: excedente de energia pode ser transferido para outras UCs do mesmo titular via SCEE.
+- BANDEIRAS TARIFARIAS: verde (sem custo extra), amarela (R$1,885/100kWh), vermelha 1 (R$4,463/100kWh), vermelha 2 (R$7,877/100kWh). NAO incidem sobre energia compensada.
+- IMPOSTOS: ICMS (estadual, CE ~25%), PIS/COFINS (federal), CIP/COSIP (municipal, iluminacao publica).
 
-**Atual (linha 370-647):**
-- Usa apenas OpenAI GPT-4o
-- `OPENAI_API_KEY` como única dependência
+ESTRUTURA DA FATURA ENEL CE:
+- "Energia Injetada HFP no mes" = total injetado fora horario ponta
+- "Saldo utilizado no mes" = creditos usados para compensar consumo
+- "Saldo atualizado" = creditos acumulados apos compensacao
+- "Creditos a Expirar no proximo mes" = creditos com prazo de 60 meses vencendo
 
-**Novo:**
-- Tenta primeiro com Gemini via Lovable AI Gateway
-- Se falhar, faz fallback para OpenAI
-- Loga qual provider foi usado
-
-### 2. Criar funções separadas para cada provider
-
-```typescript
-// Chamada para Lovable AI (Gemini)
-async function callOCRWithGemini(
-  imageDataUrl: string, 
-  lovableApiKey: string, 
-  ocrPrompt: string
-): Promise<RawBillData>
-
-// Chamada para OpenAI (Fallback)
-async function callOCRWithOpenAI(
-  imageDataUrl: string, 
-  openaiApiKey: string, 
-  ocrPrompt: string
-): Promise<RawBillData>
+USE ESTE CONHECIMENTO para:
+1. Explicar POR QUE cada linha da conta existe (fundamentando na legislacao)
+2. Alertar sobre creditos prestes a expirar (regra dos 60 meses)
+3. Identificar se o cliente e GD I ou GD II/III e explicar as implicacoes
+4. Diferenciar TE e TUSD didaticamente
+5. Explicar o mecanismo SCEE de compensacao e transferencia entre UCs
 ```
 
-### 3. Lógica de fallback
+### 3. Adicionar campo GD classification ao analystPrompt
 
-```typescript
-let rawData: RawBillData = {};
-let providerUsed = "gemini";
-
-try {
-  rawData = await callOCRWithGemini(imageDataUrl, LOVABLE_API_KEY, ocrPrompt);
-} catch (geminiError) {
-  console.warn("⚠️ Gemini OCR failed, falling back to OpenAI:", geminiError);
-  providerUsed = "openai";
-  
-  try {
-    rawData = await callOCRWithOpenAI(imageDataUrl, OPENAI_API_KEY, ocrPrompt);
-  } catch (openaiError) {
-    console.error("❌ Both OCR providers failed");
-    throw new Error("Não foi possível processar a imagem. Tente novamente.");
-  }
+Adicionar ao JSON de saida do analista:
+```json
+"gd_classification": {
+  "type": "GD I | GD II | GD III | Nao identificado",
+  "explanation": "Explicacao de como identificou e o que isso significa para o cliente"
 }
-
-console.log(`✅ OCR completed using ${providerUsed}`);
 ```
 
-### 4. Tratamento de erros específicos
+### 4. Deploy
 
-| Erro | Provider | Ação |
-|------|----------|------|
-| 429 (Rate Limit) | Gemini | Fallback para OpenAI |
-| 402 (Créditos) | Gemini | Fallback para OpenAI |
-| 500 (Server Error) | Gemini | Fallback para OpenAI |
-| Timeout | Gemini | Fallback para OpenAI |
-| insufficient_quota | OpenAI | Mensagem clara ao usuário |
-| Todos falham | Ambos | Erro genérico |
-
-### 5. Atualizar registro de provider usado
-
-Quando salvar no `bill_raw_data`, registrar qual modelo foi usado:
-
-```typescript
-extraction_model: providerUsed === "gemini" 
-  ? "gemini-3-flash-preview" 
-  : "gpt-4o"
-```
+Redeployar a Edge Function `analyze-bill` apos as alteracoes.
 
 ---
 
-## Configuração de Variáveis
-
-Ambas as API keys já estão configuradas:
-- `LOVABLE_API_KEY` - Já existe e funciona (usado no bill-chat)
-- `OPENAI_API_KEY` - Já existe (quota esgotada, mas será fallback)
-
----
-
-## Benefícios
+## Resumo de Impacto
 
 | Aspecto | Antes | Depois |
 |---------|-------|--------|
-| Disponibilidade | Depende só de OpenAI | Dois providers |
-| Custo | Pago separadamente | Lovable incluído |
-| Resiliência | Falha se OpenAI cair | Fallback automático |
-| Debugging | 1 fonte de erro | Logs claros de qual provider |
+| Precisao OCR | Termos genericos | Terminologia oficial Enel + campos SCEE exatos |
+| Explicacoes | Sem base legal | Fundamentadas na Lei 14.300 |
+| Creditos 60 meses | Nao alertado | Alerta automatico de expiracao |
+| TE vs TUSD | Mencionado | Explicado didaticamente com base legal |
+| GD I/II/III | Nao identificado | Classificacao e implicacoes |
+| Fio B | Nao mencionado | Explicacao da "taxacao do sol" |
 
----
-
-## Arquivo a Modificar
-
-- `supabase/functions/analyze-bill/index.ts`
-  - Linhas 370-647: Refatorar `performOCRExtraction`
-  - Linhas 958, 975: Atualizar referências ao modelo usado
-  - Adicionar funções auxiliares `callOCRWithGemini` e `callOCRWithOpenAI`
-
----
-
-## Formato de Chamada ao Lovable AI Gateway
-
-```typescript
-const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-  method: "POST",
-  headers: {
-    "Authorization": `Bearer ${lovableApiKey}`,
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    model: "google/gemini-3-flash-preview",
-    messages: [
-      { role: "system", content: ocrPrompt },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: "Extraia TODOS os dados desta conta de energia:" },
-          { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
-        ],
-      },
-    ],
-    max_tokens: 8000,
-    temperature: 0,
-  }),
-});
-```
-
----
-
-## Testes Recomendados
-
-1. **Upload de conta válida** - Deve usar Gemini e retornar dados
-2. **Simular erro no Gemini** - Verificar fallback para OpenAI nos logs
-3. **Verificar logs** - Confirmar qual provider foi usado em cada análise
