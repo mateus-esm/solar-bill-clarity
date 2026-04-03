@@ -1277,7 +1277,7 @@ serve(async (req) => {
     // If mime type is still PDF (legacy URL or detection issue), log warning but don't reject
     // The frontend converts PDFs to images, but storage might return old content-type
     if (imageMimeType.includes("pdf")) {
-      console.warn("⚠️ File detected as PDF. Attempting to process anyway as image...");
+      console.warn("⚠️ File detected as PDF. Checking actual content...");
       // Try to detect actual content by checking base64 header
       if (imageBase64.startsWith("iVBOR")) {
         imageMimeType = "image/png";
@@ -1286,7 +1286,9 @@ serve(async (req) => {
         imageMimeType = "image/jpeg";
         console.log("✅ Content is actually JPEG, corrected mime type");
       } else {
-        throw new Error("PDFs não são suportados diretamente. Por favor, converta para imagem ou tire uma foto da sua conta.");
+        // It's a real PDF - Gemini supports PDF natively, so keep it as application/pdf
+        console.log("📄 Real PDF detected - will send as application/pdf to Gemini");
+        imageMimeType = "application/pdf";
       }
     }
 
