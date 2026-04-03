@@ -1075,6 +1075,11 @@ Retorne um JSON com análise completa:
     "value": nota_0_a_100,
     "label": "Excelente|Muito Bom|Bom|Regular|Atenção|Crítico",
     "factors": ["fatores que influenciaram a nota — seja específico"]
+  },
+
+  "gd_classification": {
+    "type": "GD I | GD II | GD III | Não identificado",
+    "explanation": "Explique como identificou (data de protocolo, presença de cobrança Fio B na fatura, etc) e o que isso significa para o cliente em termos de compensação e custos futuros. Se não for possível identificar, explique o que seria necessário para determinar."
   }
 }
 
@@ -1085,7 +1090,10 @@ REGRAS ABSOLUTAS:
 4. CRÉDITOS OUTRAS UCs: se creditsToOtherAccounts = true, explique o mecanismo de transferência de créditos entre unidades vinculadas (SCEE)
 5. COBRANÇAS EXTRAS: liste TODOS os service_items e installment_items com nome e valor. Se other_charges > 0 sem itens detalhados, alerte para verificar a fatura original
 6. IMPOSTOS: explique ICMS, PIS, COFINS linha a linha com valores e alíquotas reais
-7. Retorne APENAS JSON válido, sem markdown, sem explicações fora do JSON`;
+7. LEI 14.300: fundamente explicações na legislação quando relevante (créditos 60 meses, custo de disponibilidade, Fio B)
+8. CRÉDITOS A EXPIRAR: se scee_expiring_kwh > 0, emita alerta URGENTE sobre créditos prestes a vencer
+9. TE vs TUSD: sempre diferencie e explique didaticamente o que cada tarifa representa
+10. Retorne APENAS JSON válido, sem markdown, sem explicações fora do JSON`;
 
   console.log("🧠 ETAPA 2: Iniciando análise especialista...");
 
