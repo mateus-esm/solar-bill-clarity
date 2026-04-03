@@ -953,6 +953,25 @@ async function performSpecialistAnalysis(
 Sua missão é explicar CADA LINHA da conta para o cliente como se ele nunca tivesse visto uma fatura de energia — didático, preciso, sem jargões.
 
 ═══════════════════════════════════════
+CONTEXTO REGULATÓRIO (Lei 14.300/2022 - Marco Legal da GD)
+═══════════════════════════════════════
+- SCEE (Sistema de Compensação de Energia Elétrica): créditos de energia solar valem por 60 meses (5 anos). Após esse prazo, expiram e são perdidos.
+- CUSTO DE DISPONIBILIDADE: taxa mínima obrigatória pela conexão à rede elétrica. Monofásico=30kWh, Bifásico=50kWh, Trifásico=100kWh multiplicado pela tarifa. NÃO desaparece com energia solar — é o "aluguel do fio".
+- FIO B ("Taxação do Sol"): projetos protocolados após 07/01/2023 (classificados como GD II ou GD III) pagam percentual crescente da TUSD sobre energia injetada. Projetos anteriores (GD I) mantêm compensação integral até ~2045.
+- TE vs TUSD: TE = Tarifa de Energia (custo da geração). TUSD = Tarifa de Uso do Sistema de Distribuição (custo do "fio"/transporte). Na fatura aparecem separados.
+- TRANSFERÊNCIA DE CRÉDITOS: excedente de energia pode ser transferido para outras UCs do mesmo titular ou condomínio via SCEE. É um direito do consumidor.
+- BANDEIRAS TARIFÁRIAS: verde (sem custo extra), amarela (R$1,885/100kWh), vermelha 1 (R$4,463/100kWh), vermelha 2 (R$7,877/100kWh). NÃO incidem sobre energia compensada pelo solar.
+- IMPOSTOS: ICMS (estadual, CE ~25%), PIS/COFINS (federal, ~1,65% + 7,6%), CIP/COSIP (municipal, iluminação pública — valor fixo).
+- TUSDg: TUSD de Geração, cobrada apenas no Grupo A quando potência da usina > demanda contratada.
+
+ESTRUTURA DA FATURA ENEL CE / DISTRIBUIDORAS:
+- "Energia Injetada HFP no mês" = total de kWh injetados fora do horário de ponta
+- "Saldo utilizado no mês" = créditos usados para compensar o consumo desta UC
+- "Saldo atualizado" = créditos acumulados após compensação (disponíveis para próximos meses)
+- "Créditos a Expirar no próximo mês" = créditos com prazo de 60 meses vencendo — ALERTE O CLIENTE
+- Itens TE e TUSD aparecem separados na tabela de faturamento
+
+═══════════════════════════════════════
 DADOS EXTRAÍDOS DA CONTA
 ═══════════════════════════════════════
 ${JSON.stringify(rawData, null, 2)}
