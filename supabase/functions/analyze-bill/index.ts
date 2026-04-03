@@ -594,6 +594,28 @@ INSTRUÇÕES ESPECIAIS PARA ENEL CEARÁ e distribuidoras similares:
 - A tabela de faturamento tem colunas: Descrição, Unid., Quant., Preço unit., Valor, Base Calc., Alíq.ICMS%, ICMS, Tarifa sem ICMS
 - Items de crédito (compensação solar) têm valores NEGATIVOS — mantenha o sinal negativo em total_value
 
+═══════════════════════════════════════
+REFERÊNCIA LEGISLATIVA E ESTRUTURAL (use para identificar campos com precisão):
+═══════════════════════════════════════
+
+ESTRUTURA OFICIAL ENEL CE / DISTRIBUIDORAS:
+- Energia Ativa Fornecida = consumo da rede (separado em TE e TUSD)
+- Energia Ativa Injetada = geração solar enviada à rede (pode aparecer como "Energia Atv Inj TE mUC" / "Energia Atv Inj TUSD mUC")
+- Energia Ativa Compensada = abatimento solar do consumo (pode aparecer como "En Atv Comp s/ICMS TE" / "En Atv Comp s/ICMS TUSD")
+- Tabela SCEE no rodapé: "Energia Injetada HFP no mês", "Saldo utilizado no mês", "Saldo atualizado", "Créditos a Expirar no próximo mês"
+- Colunas típicas da tabela de faturamento: Descrição | Unid. | Quant. | Preço unit. | Valor | Base Calc. | Alíq.ICMS% | ICMS | Tarifa sem ICMS
+- "Tipo de Ramal", "Tipo de Ligação", "Fases" indicam connection_type (monofasico/bifasico/trifasico)
+
+LEI 14.300/2022 - MARCOS IMPORTANTES (use para identificar campos SCEE com precisão):
+- Créditos de energia solar expiram em 60 meses (5 anos) — procure campo "Créditos a Expirar"
+- Custo de Disponibilidade obrigatório: Monofásico=30kWh, Bifásico=50kWh, Trifásico=100kWh
+- GD I (protocolo antes de 07/01/2023): compensação integral, sem cobrança de Fio B
+- GD II/III (protocolo após 07/01/2023): paga percentual crescente da TUSD sobre energia injetada ("Taxação do Sol")
+- Transferência de créditos entre UCs do mesmo titular é permitida via SCEE
+- Bandeiras tarifárias NÃO incidem sobre energia compensada
+- TUSDg = TUSD de Geração (apenas Grupo A / média e alta tensão)
+- Impostos: PIS/COFINS (federal), ICMS (estadual, CE ~25%), CIP/COSIP (municipal)
+
 REGRAS CRÍTICAS:
 1. Retorne APENAS o JSON, sem markdown, sem explicações, sem \`\`\`
 2. Use números decimais com PONTO (ex: 123.45, não 123,45)
@@ -931,6 +953,25 @@ async function performSpecialistAnalysis(
 Sua missão é explicar CADA LINHA da conta para o cliente como se ele nunca tivesse visto uma fatura de energia — didático, preciso, sem jargões.
 
 ═══════════════════════════════════════
+CONTEXTO REGULATÓRIO (Lei 14.300/2022 - Marco Legal da GD)
+═══════════════════════════════════════
+- SCEE (Sistema de Compensação de Energia Elétrica): créditos de energia solar valem por 60 meses (5 anos). Após esse prazo, expiram e são perdidos.
+- CUSTO DE DISPONIBILIDADE: taxa mínima obrigatória pela conexão à rede elétrica. Monofásico=30kWh, Bifásico=50kWh, Trifásico=100kWh multiplicado pela tarifa. NÃO desaparece com energia solar — é o "aluguel do fio".
+- FIO B ("Taxação do Sol"): projetos protocolados após 07/01/2023 (classificados como GD II ou GD III) pagam percentual crescente da TUSD sobre energia injetada. Projetos anteriores (GD I) mantêm compensação integral até ~2045.
+- TE vs TUSD: TE = Tarifa de Energia (custo da geração). TUSD = Tarifa de Uso do Sistema de Distribuição (custo do "fio"/transporte). Na fatura aparecem separados.
+- TRANSFERÊNCIA DE CRÉDITOS: excedente de energia pode ser transferido para outras UCs do mesmo titular ou condomínio via SCEE. É um direito do consumidor.
+- BANDEIRAS TARIFÁRIAS: verde (sem custo extra), amarela (R$1,885/100kWh), vermelha 1 (R$4,463/100kWh), vermelha 2 (R$7,877/100kWh). NÃO incidem sobre energia compensada pelo solar.
+- IMPOSTOS: ICMS (estadual, CE ~25%), PIS/COFINS (federal, ~1,65% + 7,6%), CIP/COSIP (municipal, iluminação pública — valor fixo).
+- TUSDg: TUSD de Geração, cobrada apenas no Grupo A quando potência da usina > demanda contratada.
+
+ESTRUTURA DA FATURA ENEL CE / DISTRIBUIDORAS:
+- "Energia Injetada HFP no mês" = total de kWh injetados fora do horário de ponta
+- "Saldo utilizado no mês" = créditos usados para compensar o consumo desta UC
+- "Saldo atualizado" = créditos acumulados após compensação (disponíveis para próximos meses)
+- "Créditos a Expirar no próximo mês" = créditos com prazo de 60 meses vencendo — ALERTE O CLIENTE
+- Itens TE e TUSD aparecem separados na tabela de faturamento
+
+═══════════════════════════════════════
 DADOS EXTRAÍDOS DA CONTA
 ═══════════════════════════════════════
 ${JSON.stringify(rawData, null, 2)}
@@ -1034,6 +1075,11 @@ Retorne um JSON com análise completa:
     "value": nota_0_a_100,
     "label": "Excelente|Muito Bom|Bom|Regular|Atenção|Crítico",
     "factors": ["fatores que influenciaram a nota — seja específico"]
+  },
+
+  "gd_classification": {
+    "type": "GD I | GD II | GD III | Não identificado",
+    "explanation": "Explique como identificou (data de protocolo, presença de cobrança Fio B na fatura, etc) e o que isso significa para o cliente em termos de compensação e custos futuros. Se não for possível identificar, explique o que seria necessário para determinar."
   }
 }
 
@@ -1044,7 +1090,10 @@ REGRAS ABSOLUTAS:
 4. CRÉDITOS OUTRAS UCs: se creditsToOtherAccounts = true, explique o mecanismo de transferência de créditos entre unidades vinculadas (SCEE)
 5. COBRANÇAS EXTRAS: liste TODOS os service_items e installment_items com nome e valor. Se other_charges > 0 sem itens detalhados, alerte para verificar a fatura original
 6. IMPOSTOS: explique ICMS, PIS, COFINS linha a linha com valores e alíquotas reais
-7. Retorne APENAS JSON válido, sem markdown, sem explicações fora do JSON`;
+7. LEI 14.300: fundamente explicações na legislação quando relevante (créditos 60 meses, custo de disponibilidade, Fio B)
+8. CRÉDITOS A EXPIRAR: se scee_expiring_kwh > 0, emita alerta URGENTE sobre créditos prestes a vencer
+9. TE vs TUSD: sempre diferencie e explique didaticamente o que cada tarifa representa
+10. Retorne APENAS JSON válido, sem markdown, sem explicações fora do JSON`;
 
   console.log("🧠 ETAPA 2: Iniciando análise especialista...");
 
