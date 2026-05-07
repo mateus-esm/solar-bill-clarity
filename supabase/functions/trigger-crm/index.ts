@@ -239,6 +239,7 @@ function buildN8nPayload(lead: Lead, jestorId: string | null) {
     nome_consultor: "Mateus Maia",
     email_consultor: lead.email,
     telefone_consultor: "(85) 99648-7923",
+    telefone_cliente: lead.whatsapp,
     fabricante_modulo: "Leapton",
     potencia_modulo_w: String(MODULE_POWER_W),
     numero_modulos: String(sizing.modules),
