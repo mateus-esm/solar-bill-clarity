@@ -237,7 +237,7 @@ function buildN8nPayload(lead: Lead, jestorId: string | null) {
     endereco_instalacao: String(analysis.endereco_instalacao || analysis.address || "Nao identificado na fatura"),
     concessionaria: distributor,
     nome_consultor: "Mateus Maia",
-    email_consultor: "mateus@soloenergia.com.br",
+    email_consultor: lead.email,
     telefone_consultor: "(85) 99648-7923",
     fabricante_modulo: "Leapton",
     potencia_modulo_w: String(MODULE_POWER_W),
