@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
 import { db } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
 
@@ -86,6 +87,14 @@ export function LeadCaptureForm({ isOpen, onClose, onSuccess, hasSolar, analysis
         });
 
       if (error) throw error;
+
+      const { error: crmError } = await supabase.functions.invoke("trigger-crm", {
+        body: { leadId: generatedId },
+      });
+
+      if (crmError) {
+        console.error("Error triggering CRM workflow:", crmError);
+      }
 
       toast({
         title: "Tudo pronto!",

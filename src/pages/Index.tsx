@@ -305,11 +305,6 @@ export default function Index() {
     setIsCrmLoading(true);
     try {
       if (leadId) {
-        await supabase.functions.invoke("trigger-crm", {
-          body: { leadId }
-        });
-        
-        // Update local status just in case
         await db("leads").update({ requested_proposal: true }).eq("id", leadId);
       }
       
