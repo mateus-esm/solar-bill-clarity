@@ -340,15 +340,6 @@ serve(async (req) => {
       );
     }
 
-    if (!jestorId) {
-      crmPayload = buildCrmPayload(typedLead);
-
-      console.log(`CRM id missing for lead ${typedLead.id}; sending lead before proposal...`);
-      const crmResult = await postJson(crmWebhookUrl, crmPayload);
-      jestorId = extractJestorId(crmResult);
-      await persistCrmMetadata(supabaseClient, typedLead, jestorId);
-    }
-
     n8nPayload = buildN8nPayload(typedLead, jestorId);
     console.log(`Triggering Solo Proposal Engine for lead ${typedLead.id}...`);
     await postJson(n8nWebhookUrl, n8nPayload);
