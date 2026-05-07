@@ -31,6 +31,8 @@ type Lead = {
   utm_campaign?: string | null;
 };
 
+type WorkflowAction = "lead" | "proposal";
+
 function toNumber(value: unknown, fallback = 0): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -178,6 +180,51 @@ function buildCommercialObs(lead: Lead): string {
   ].join("\n");
 }
 
+function buildCrmPayload(lead: Lead) {
+  return {
+    nome: lead.name,
+    email: lead.email,
+    tel: lead.whatsapp,
+    obs: buildCommercialObs(lead),
+  };
+}
+
+function getStoredJestorId(lead: Lead): string | null {
+  const analysis = lead.analysis_summary ?? {};
+  const crm = analysis.crm;
+
+  if (crm && typeof crm === "object") {
+    const record = crm as Record<string, unknown>;
+    const stored = record.jestor_id || record.jestorId || record.id_jestor;
+    if (typeof stored === "string" && stored.trim()) return stored.trim();
+    if (typeof stored === "number" && Number.isFinite(stored)) return String(stored);
+  }
+
+  return extractJestorId(analysis);
+}
+
+async function persistCrmMetadata(
+  supabaseClient: any,
+  lead: Lead,
+  jestorId: string | null,
+) {
+  const analysis = lead.analysis_summary ?? {};
+
+  await supabaseClient
+    .from("leads")
+    .update({
+      analysis_summary: {
+        ...analysis,
+        crm: {
+          ...(typeof analysis.crm === "object" && analysis.crm ? analysis.crm : {}),
+          jestor_id: jestorId,
+          sent_at: new Date().toISOString(),
+        },
+      },
+    })
+    .eq("id", lead.id);
+}
+
 function buildN8nPayload(lead: Lead, jestorId: string | null) {
   const analysis = lead.analysis_summary ?? {};
   const sizing = buildSizing(lead);
@@ -234,10 +281,17 @@ serve(async (req) => {
   }
 
   try {
-    const { leadId } = await req.json();
+    const { leadId, action = "lead" } = await req.json() as {
+      leadId?: string;
+      action?: WorkflowAction;
+    };
 
     if (!leadId) {
       throw new Error("A leadId is required");
+    }
+
+    if (action !== "lead" && action !== "proposal") {
+      throw new Error("Invalid action. Use 'lead' or 'proposal'.");
     }
 
     const supabaseClient = createClient(
@@ -260,18 +314,42 @@ serve(async (req) => {
     const crmWebhookUrl = Deno.env.get("CRM_WEBHOOK_URL") || DEFAULT_CRM_WEBHOOK_URL;
     const n8nWebhookUrl = Deno.env.get("N8N_PROPOSAL_WEBHOOK_URL") || DEFAULT_N8N_WEBHOOK_URL;
 
-    const crmPayload = {
-      nome: typedLead.name,
-      email: typedLead.email,
-      tel: typedLead.whatsapp,
-      obs: buildCommercialObs(typedLead),
-    };
+    let crmPayload: ReturnType<typeof buildCrmPayload> | null = null;
+    let n8nPayload: ReturnType<typeof buildN8nPayload> | null = null;
+    let jestorId = getStoredJestorId(typedLead);
 
-    console.log(`Sending lead ${typedLead.id} to CRM webhook...`);
-    const crmResult = await postJson(crmWebhookUrl, crmPayload);
-    const jestorId = extractJestorId(crmResult);
+    if (action === "lead") {
+      crmPayload = buildCrmPayload(typedLead);
 
-    const n8nPayload = buildN8nPayload(typedLead, jestorId);
+      console.log(`Sending lead ${typedLead.id} to CRM webhook...`);
+      const crmResult = await postJson(crmWebhookUrl, crmPayload);
+      jestorId = extractJestorId(crmResult) || jestorId;
+      await persistCrmMetadata(supabaseClient, typedLead, jestorId);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          action,
+          crmPayload,
+          jestorId,
+        }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200,
+        },
+      );
+    }
+
+    if (!jestorId) {
+      crmPayload = buildCrmPayload(typedLead);
+
+      console.log(`CRM id missing for lead ${typedLead.id}; sending lead before proposal...`);
+      const crmResult = await postJson(crmWebhookUrl, crmPayload);
+      jestorId = extractJestorId(crmResult);
+      await persistCrmMetadata(supabaseClient, typedLead, jestorId);
+    }
+
+    n8nPayload = buildN8nPayload(typedLead, jestorId);
     console.log(`Triggering Solo Proposal Engine for lead ${typedLead.id}...`);
     await postJson(n8nWebhookUrl, n8nPayload);
 
@@ -283,6 +361,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
+        action,
         crmPayload,
         n8nPayload,
         jestorId,

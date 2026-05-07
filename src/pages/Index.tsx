@@ -20,7 +20,6 @@ import { FreemiumBanner } from "@/components/FreemiumBanner";
 import { LeadCaptureForm, type LeadFormData } from "@/components/LeadCaptureForm";
 import { useSessionStorage } from "@/hooks/useSessionStorage";
 import { supabase } from "@/integrations/supabase/client";
-import { db } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
 import { pdfToImages, isPdfFile, PdfPasswordRequiredError, PdfPasswordIncorrectError } from "@/lib/pdfToImages";
 
@@ -298,22 +297,28 @@ export default function Index() {
         `Minha geração atual é ${analysisResult?.generated || 0} kWh e preciso de mais ` +
         `${analysisResult?.extraGenerationNeeded || 0} kWh para pagar apenas o valor mínimo.`
     );
-    window.open(`https://wa.me/5500000000000?text=${message}`, "_blank");
+    window.open(`https://wa.me/558581813110?text=${message}`, "_blank");
   };
 
   const handleReceiveProposal = async () => {
     setIsCrmLoading(true);
     try {
       if (leadId) {
-        await db("leads").update({ requested_proposal: true }).eq("id", leadId);
+        const { error } = await supabase.functions.invoke("trigger-crm", {
+          body: { leadId, action: "proposal" }
+        });
+
+        if (error) throw error;
       }
       
       const message = encodeURIComponent(
         `Olá! Tenho interesse em uma proposta para sistema de energia solar. ` +
-        `Vi que meu sistema ideal seria de ${analysisResult?.recommendedKwp?.toFixed(1) || 0} kWp, ` +
-        `o que me faria economizar cerca de R$ ${analysisResult?.potentialSavings?.toFixed(2) || 0} por mês.`
+        `Meu sistema sugerido é de ${analysisResult?.recommendedKwp?.toFixed(1) || 0} kWp ` +
+        `com ${analysisResult?.recommendedModules || 0} módulos. ` +
+        `Minha conta analisada foi de R$ ${analysisResult?.totalPaid?.toFixed(2) || 0} ` +
+        `e a economia estimada é de R$ ${analysisResult?.potentialSavings?.toFixed(2) || 0} por mês.`
       );
-      window.open(`https://wa.me/5500000000000?text=${message}`, "_blank");
+      window.open(`https://wa.me/558581813110?text=${message}`, "_blank");
     } catch (e) {
       console.error(e);
       toast({ title: "Erro", description: "Ocorreu um problema.", variant: "destructive" });

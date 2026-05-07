@@ -89,11 +89,12 @@ export function LeadCaptureForm({ isOpen, onClose, onSuccess, hasSolar, analysis
       if (error) throw error;
 
       const { error: crmError } = await supabase.functions.invoke("trigger-crm", {
-        body: { leadId: generatedId },
+        body: { leadId: generatedId, action: "lead" },
       });
 
       if (crmError) {
         console.error("Error triggering CRM workflow:", crmError);
+        throw crmError;
       }
 
       toast({
