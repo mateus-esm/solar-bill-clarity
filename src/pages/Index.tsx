@@ -347,6 +347,13 @@ export default function Index() {
       <main className="container py-8 pb-16">
         <AnimatePresence mode="wait">
           {!showResults ? (
+            step === "gate" ? (
+              <LeadCaptureForm
+                onSuccess={handleLeadSuccess}
+                hasSolar={hasSolar}
+                analysisSummary={analysisResult}
+              />
+            ) : (
             <motion.div
               key="upload-form"
               initial={{ opacity: 0 }}
@@ -509,6 +516,7 @@ export default function Index() {
                 </span>
               </motion.div>
             </motion.div>
+            )
           ) : (
             analysisResult && (
               <motion.div
@@ -593,14 +601,6 @@ export default function Index() {
             )
           )}
         </AnimatePresence>
-
-        <LeadCaptureForm 
-          isOpen={step === "gate"} 
-          onClose={() => { setStep("idle"); }}
-          onSuccess={handleLeadSuccess} 
-          hasSolar={hasSolar} 
-          analysisSummary={analysisResult} 
-        />
       </main>
 
       {/* Footer */}
