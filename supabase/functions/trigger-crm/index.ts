@@ -209,6 +209,11 @@ function buildCommercialObs(lead: Lead, partner: Partner | null): string {
   return lines.join("\n");
 }
 
+function isBillingLeadMagnetLead(lead: Lead): boolean {
+  const source = String(lead.source || "");
+  return source.startsWith("lead_magnet");
+}
+
 function buildLeadRouterPayload(lead: Lead, partner: Partner | null) {
   return {
     nome: lead.name,
@@ -450,7 +455,8 @@ serve(async (req) => {
       );
     }
 
-    n8nPayload = buildN8nPayload(typedLead, jestorId, partner, { omitJestorId });
+    const shouldOmitJestorId = omitJestorId || isBillingLeadMagnetLead(typedLead);
+    n8nPayload = buildN8nPayload(typedLead, jestorId, partner, { omitJestorId: shouldOmitJestorId });
     console.log(`Triggering Solo Proposal Engine for lead ${typedLead.id}...`);
     await postJson(n8nWebhookUrl, n8nPayload);
 
