@@ -1,12 +1,23 @@
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, Loader2, RotateCcw, Lock, Eye, EyeOff } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  FileText,
+  Loader2,
+  Lock,
+  RotateCcw,
+  Trash2,
+  Zap,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SoloLogo } from "@/components/SoloLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { BillUpload } from "@/components/BillUpload";
-import { SolarInput } from "@/components/SolarInput";
 import { AnalysisStepper, type AnalysisStep } from "@/components/AnalysisStepper";
 import {
   BillSummaryCard,
@@ -23,67 +34,307 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { pdfToImages, isPdfFile, PdfPasswordRequiredError, PdfPasswordIncorrectError } from "@/lib/pdfToImages";
 
-// Interface simplificada para o Bill Clarifier v1.0
+type ResultType = "solar" | "non-solar";
+type SystemStatus = "adequate" | "slightly_below" | "below_needed";
+type BillStatus = "pending" | "needs_password" | "converting" | "analyzing" | "done" | "error";
+
 interface ClarifierResult {
-  // Card 1: Resumo
+  type: ResultType;
   totalPaid: number;
   minimumPossible: number;
-
-  // Card 2: Composição
   availabilityCost: number;
   publicLightingCost: number;
   uncompensatedCost: number;
-
-  // Card 3: Solar
-  generated: number;
-  injected: number;
-  compensated: number;
-  creditsBalance: number;
-
-  // Card 4: Status
-  expectedGeneration: number;
-  actualGeneration: number;
-  generationGap: number;
-  systemStatus: "adequate" | "slightly_below" | "below_needed";
-
-  // Card 5: Ação
-  extraGenerationNeeded: number;
+  generated?: number;
+  injected?: number;
+  compensated?: number;
+  creditsBalance?: number;
+  expectedGeneration?: number;
+  actualGeneration?: number;
+  generationGap?: number;
+  systemStatus?: SystemStatus;
+  extraGenerationNeeded?: number;
   expansionKwp?: number;
   expansionModules?: number;
-
-  // Extras
+  recommendedKwp?: number;
+  recommendedModules?: number;
+  potentialSavings?: number;
+  billedConsumption?: number;
+  requiredGeneration?: number;
   distributor: string;
+  diagnosisDetails?: unknown;
 }
 
+interface IndividualBillResult extends ClarifierResult {
+  id: string;
+  fileName: string;
+  holder?: string;
+  accountNumber?: string;
+  referenceMonth?: string;
+}
+
+interface PortfolioResult extends ClarifierResult {
+  mode: "multi_bill";
+  isPortfolio: true;
+  billCount: number;
+  successfulCount: number;
+  failedCount: number;
+  warnings: string[];
+  bills: IndividualBillResult[];
+}
+
+interface BillQueueItem {
+  id: string;
+  file: File;
+  password: string;
+  showPassword: boolean;
+  status: BillStatus;
+  error?: string;
+  result?: IndividualBillResult;
+}
+
+const PROCESSING_STEPS: Array<AnalysisStep | "gate"> = ["uploading", "extracting", "calculating", "gate"];
+
+const toNumber = (value: unknown, fallback = 0): number => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const normalized = value.replace(/\./g, "").replace(",", ".");
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  return fallback;
+};
+
+const formatCurrency = (value?: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
+
+const getUniqueValues = (values: Array<string | undefined>) =>
+  Array.from(new Set(values.filter((value): value is string => Boolean(value && value !== "Nao identificada"))));
+
+const normalizeClarifierResult = (
+  billId: string,
+  fileName: string,
+  apiResult: any,
+  rawData: any,
+  hasSolar: boolean,
+  generated: number,
+): IndividualBillResult => {
+  const result = apiResult || {};
+  const raw = rawData || result;
+  const availabilityCost = toNumber(result.availability_cost || raw.availability_cost, 0);
+  const publicLightingCost = toNumber(result.public_lighting_cost || raw.public_lighting_cost, 0);
+  const minimumPossible = availabilityCost + publicLightingCost;
+  const totalPaid = toNumber(result.total_amount || raw.total_amount, 0);
+  const uncompensatedCost = Math.max(0, totalPaid - minimumPossible);
+  const billedConsumption = toNumber(
+    result.billed_consumption_kwh || raw.billed_consumption_kwh || raw.measured_consumption_kwh,
+    0,
+  );
+  const distributor = result.distributor || raw.distributor || "Nao identificada";
+
+  const base = {
+    id: billId,
+    fileName,
+    totalPaid,
+    minimumPossible,
+    availabilityCost,
+    publicLightingCost,
+    uncompensatedCost,
+    billedConsumption,
+    distributor,
+    holder: result.customer_name || raw.customer_name || result.consumer_name || raw.consumer_name || raw.holder,
+    accountNumber: result.account_number || raw.account_number || result.installation_number || raw.installation_number,
+    referenceMonth: result.reference_month || raw.reference_month || result.billing_month || raw.billing_month,
+    diagnosisDetails: result.diagnosis_details,
+  };
+
+  if (hasSolar) {
+    const injected = toNumber(result.injected_energy_kwh || raw.injected_energy_kwh, 0);
+    const compensated = toNumber(result.compensated_energy_kwh || raw.compensated_energy_kwh, 0);
+    const creditsBalance = toNumber(result.current_credits_kwh || raw.current_credits_kwh, 0);
+    const expectedGeneration = toNumber(result.expected_generation_kwh, 0) || generated;
+    const requiredGeneration = Math.max(0, billedConsumption - compensated);
+
+    let systemStatus: SystemStatus = "adequate";
+    if (generated >= requiredGeneration) {
+      systemStatus = "adequate";
+    } else if (generated >= requiredGeneration * 0.8) {
+      systemStatus = "slightly_below";
+    } else {
+      systemStatus = "below_needed";
+    }
+
+    const extraGenerationNeeded = Math.max(0, requiredGeneration - generated);
+    const expansionKwp = extraGenerationNeeded > 0 ? extraGenerationNeeded / 150 : undefined;
+    const expansionModules = expansionKwp ? Math.ceil(expansionKwp / 0.62) : undefined;
+
+    return {
+      ...base,
+      type: "solar",
+      generated,
+      injected,
+      compensated,
+      creditsBalance,
+      expectedGeneration,
+      actualGeneration: generated,
+      generationGap: Math.max(0, expectedGeneration - generated),
+      systemStatus,
+      requiredGeneration,
+      extraGenerationNeeded,
+      expansionKwp,
+      expansionModules,
+    };
+  }
+
+  return {
+    ...base,
+    type: "non-solar",
+    recommendedKwp: toNumber(result.recommended_potency_kwp, 0),
+    recommendedModules: Math.ceil(toNumber(result.recommended_modules, 0)),
+    potentialSavings: toNumber(result.potential_monthly_savings, 0),
+  };
+};
+
+const aggregateBillResults = (
+  bills: IndividualBillResult[],
+  allBillCount: number,
+  failedCount: number,
+  hasSolar: boolean,
+  totalGeneration: number,
+): PortfolioResult => {
+  const sum = (selector: (bill: IndividualBillResult) => number | undefined) =>
+    bills.reduce((total, bill) => total + (selector(bill) || 0), 0);
+
+  const distributors = getUniqueValues(bills.map((bill) => bill.distributor));
+  const holders = getUniqueValues(bills.map((bill) => bill.holder));
+  const warnings: string[] = [];
+
+  if (distributors.length > 1) {
+    warnings.push("Foram detectadas contas de distribuidoras diferentes. A soma foi mantida para visao de portfolio.");
+  }
+  if (holders.length > 1) {
+    warnings.push("Foram detectados titulares diferentes. Confirme se as contas pertencem ao mesmo cliente ou grupo.");
+  }
+  if (failedCount > 0) {
+    warnings.push(`${failedCount} conta(s) nao puderam ser analisadas e ficaram fora do total.`);
+  }
+
+  const totalPaid = sum((bill) => bill.totalPaid);
+  const minimumPossible = sum((bill) => bill.minimumPossible);
+  const availabilityCost = sum((bill) => bill.availabilityCost);
+  const publicLightingCost = sum((bill) => bill.publicLightingCost);
+  const uncompensatedCost = sum((bill) => bill.uncompensatedCost);
+  const billedConsumption = sum((bill) => bill.billedConsumption);
+  const distributor = distributors.length === 1 ? distributors[0] : `${distributors.length || 0} distribuidoras`;
+
+  if (hasSolar) {
+    const injected = sum((bill) => bill.injected);
+    const compensated = sum((bill) => bill.compensated);
+    const creditsBalance = sum((bill) => bill.creditsBalance);
+    const expectedGeneration = sum((bill) => bill.expectedGeneration) || totalGeneration;
+    const requiredGeneration = sum((bill) => bill.requiredGeneration);
+    const extraGenerationNeeded = Math.max(0, requiredGeneration - totalGeneration);
+    const expansionKwp = extraGenerationNeeded > 0 ? extraGenerationNeeded / 150 : undefined;
+    const expansionModules = expansionKwp ? Math.ceil(expansionKwp / 0.62) : undefined;
+
+    let systemStatus: SystemStatus = "adequate";
+    if (totalGeneration >= requiredGeneration) {
+      systemStatus = "adequate";
+    } else if (totalGeneration >= requiredGeneration * 0.8) {
+      systemStatus = "slightly_below";
+    } else {
+      systemStatus = "below_needed";
+    }
+
+    return {
+      mode: "multi_bill",
+      isPortfolio: true,
+      type: "solar",
+      billCount: allBillCount,
+      successfulCount: bills.length,
+      failedCount,
+      warnings,
+      bills,
+      totalPaid,
+      minimumPossible,
+      availabilityCost,
+      publicLightingCost,
+      uncompensatedCost,
+      generated: totalGeneration,
+      injected,
+      compensated,
+      creditsBalance,
+      expectedGeneration,
+      actualGeneration: totalGeneration,
+      generationGap: Math.max(0, expectedGeneration - totalGeneration),
+      systemStatus,
+      requiredGeneration,
+      extraGenerationNeeded,
+      expansionKwp,
+      expansionModules,
+      billedConsumption,
+      distributor,
+    };
+  }
+
+  return {
+    mode: "multi_bill",
+    isPortfolio: true,
+    type: "non-solar",
+    billCount: allBillCount,
+    successfulCount: bills.length,
+    failedCount,
+    warnings,
+    bills,
+    totalPaid,
+    minimumPossible,
+    availabilityCost,
+    publicLightingCost,
+    uncompensatedCost,
+    recommendedKwp: sum((bill) => bill.recommendedKwp),
+    recommendedModules: Math.ceil(sum((bill) => bill.recommendedModules)),
+    potentialSavings: sum((bill) => bill.potentialSavings),
+    billedConsumption,
+    distributor,
+  };
+};
+
+const getStatusLabel = (status: BillStatus) => {
+  switch (status) {
+    case "needs_password":
+      return "Senha";
+    case "converting":
+      return "Convertendo";
+    case "analyzing":
+      return "Analisando";
+    case "done":
+      return "Pronta";
+    case "error":
+      return "Erro";
+    default:
+      return "Pendente";
+  }
+};
+
 export default function Index() {
-  const [file, setFile] = useState<File | null>(null);
-  
-  // States persisted via sessionStorage
+  const [bills, setBills] = useState<BillQueueItem[]>([]);
+
   const [hasSolar, setHasSolar] = useSessionStorage<boolean>("solo_has_solar", true);
   const [solarGeneration, setSolarGeneration] = useSessionStorage<string>("solo_solar_generation", "");
   const [installedPotency, setInstalledPotency] = useSessionStorage<string>("solo_installed_potency", "");
   const [step, setStep] = useSessionStorage<AnalysisStep | "gate">("solo_analysis_step", "idle");
-  const [analysisResult, setAnalysisResult] = useSessionStorage<ClarifierResult | any | null>("solo_analysis_result", null);
+  const [analysisResult, setAnalysisResult] = useSessionStorage<ClarifierResult | PortfolioResult | any | null>(
+    "solo_analysis_result",
+    null,
+  );
   const [showResults, setShowResults] = useSessionStorage<boolean>("solo_show_results", false);
   const [leadId, setLeadId] = useSessionStorage<string | null>("solo_lead_id", null);
 
   const [stepError, setStepError] = useState<string | undefined>();
-  const [pdfNeedsPassword, setPdfNeedsPassword] = useState(false);
-  const [pdfPassword, setPdfPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [checkingPdf, setCheckingPdf] = useState(false);
+  const [activeBillIndex, setActiveBillIndex] = useState<number | null>(null);
   const [isCrmLoading, setIsCrmLoading] = useState(false);
-  
-  const { toast } = useToast();
 
-  const toNumber = (value: unknown, fallback = 0): number => {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string") {
-      const n = Number(value);
-      return Number.isFinite(n) ? n : fallback;
-    }
-    return fallback;
-  };
+  const { toast } = useToast();
 
   const fileToBase64 = useCallback((f: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -97,162 +348,184 @@ export default function Index() {
     });
   }, []);
 
-  const handleFileSelect = async (f: File) => {
-    setPdfNeedsPassword(false);
-    setPdfPassword("");
-    setFile(f);
-    if (isPdfFile(f)) {
-      setCheckingPdf(true);
-      try {
-        await pdfToImages(f, { maxPages: 1, scale: 0.5 });
-      } catch (err) {
-        if (err instanceof PdfPasswordRequiredError) {
-          setPdfNeedsPassword(true);
-        }
-      } finally {
-        setCheckingPdf(false);
-      }
-    }
+  const updateBill = (id: string, patch: Partial<BillQueueItem>) => {
+    setBills((current) => current.map((bill) => (bill.id === id ? { ...bill, ...patch } : bill)));
   };
 
-  const handleValidatePassword = async () => {
-    if (!file || !pdfPassword) return;
-    setCheckingPdf(true);
+  const handleFilesSelect = async (selectedFiles: File[]) => {
+    const nextBills = selectedFiles.map((selectedFile) => ({
+      id: crypto.randomUUID(),
+      file: selectedFile,
+      password: "",
+      showPassword: false,
+      status: "pending" as BillStatus,
+    }));
+
+    setBills((current) => [...current, ...nextBills]);
+
+    await Promise.all(
+      nextBills.map(async (bill) => {
+        if (!isPdfFile(bill.file)) return;
+        try {
+          await pdfToImages(bill.file, { maxPages: 1, scale: 0.5 });
+        } catch (err) {
+          if (err instanceof PdfPasswordRequiredError) {
+            updateBill(bill.id, { status: "needs_password" });
+          } else {
+            updateBill(bill.id, {
+              status: "error",
+              error: err instanceof Error ? err.message : "Nao foi possivel ler o PDF",
+            });
+          }
+        }
+      }),
+    );
+  };
+
+  const handleValidatePassword = async (billId: string) => {
+    const bill = bills.find((item) => item.id === billId);
+    if (!bill || !bill.password) return;
+
+    updateBill(billId, { status: "converting", error: undefined });
     try {
-      await pdfToImages(file, { maxPages: 1, scale: 0.5, password: pdfPassword });
-      setPdfNeedsPassword(false);
+      await pdfToImages(bill.file, { maxPages: 1, scale: 0.5, password: bill.password });
+      updateBill(billId, { status: "pending" });
       toast({ title: "PDF desbloqueado!", description: "Senha aceita com sucesso." });
     } catch (err) {
       if (err instanceof PdfPasswordIncorrectError || err instanceof PdfPasswordRequiredError) {
+        updateBill(billId, { status: "needs_password", error: "Senha incorreta" });
         toast({ title: "Senha incorreta", description: "Tente novamente.", variant: "destructive" });
+      } else {
+        updateBill(billId, {
+          status: "error",
+          error: err instanceof Error ? err.message : "Nao foi possivel validar a senha",
+        });
       }
-    } finally {
-      setCheckingPdf(false);
     }
   };
 
-  const handleClearFile = () => {
-    setFile(null);
-    setPdfNeedsPassword(false);
-    setPdfPassword("");
+  const handleClearBills = () => {
+    setBills([]);
+    setActiveBillIndex(null);
+  };
+
+  const handleRemoveBill = (billId: string) => {
+    if (PROCESSING_STEPS.includes(step)) return;
+    setBills((current) => current.filter((bill) => bill.id !== billId));
+  };
+
+  const analyzeSingleBill = async (
+    bill: BillQueueItem,
+    index: number,
+    totalBills: number,
+    generatedForBill: number,
+    potencyKwp?: number,
+  ): Promise<IndividualBillResult> => {
+    updateBill(bill.id, { status: "converting", error: undefined });
+    setStep("uploading");
+    setActiveBillIndex(index);
+
+    let imageBase64: string;
+    let imageMimeType = bill.file.type;
+
+    if (isPdfFile(bill.file)) {
+      const images = await pdfToImages(bill.file, {
+        maxPages: 1,
+        scale: 3,
+        password: bill.password || undefined,
+      });
+      if (!images.length) throw new Error("Nao foi possivel ler o PDF");
+      imageBase64 = images[0].base64.split(",")[1];
+      imageMimeType = "image/png";
+    } else {
+      imageBase64 = await fileToBase64(bill.file);
+    }
+
+    updateBill(bill.id, { status: "analyzing" });
+    setStep("extracting");
+
+    const { data, error } = await supabase.functions.invoke("analyze-bill", {
+      body: {
+        fileBase64: imageBase64,
+        fileType: imageMimeType,
+        monitoredGeneration: generatedForBill,
+        quickAnalysis: true,
+        has_solar: hasSolar,
+        installed_potency_kwp: potencyKwp,
+        portfolio_position: index + 1,
+        portfolio_total: totalBills,
+      },
+    });
+
+    if (error) throw error;
+    if (!data.success) throw new Error(data.error || "Erro na analise");
+
+    setStep("calculating");
+    const normalized = normalizeClarifierResult(
+      bill.id,
+      bill.file.name,
+      data.data,
+      data.rawData || data.data,
+      hasSolar,
+      generatedForBill,
+    );
+
+    updateBill(bill.id, { status: "done", result: normalized });
+    return normalized;
   };
 
   const handleAnalyze = async () => {
-    if (!file) return;
+    const analyzableBills = bills.filter((bill) => bill.status !== "error");
+    if (!analyzableBills.length) return;
+
+    if (bills.some((bill) => bill.status === "needs_password")) {
+      toast({ title: "PDF protegido", description: "Desbloqueie os PDFs antes da analise.", variant: "destructive" });
+      return;
+    }
+
     if (hasSolar && !solarGeneration && !installedPotency) {
-      toast({ title: "Informação Necessária", description: "Por favor, informe a geração ou a potência.", variant: "destructive" });
+      toast({
+        title: "Informacao necessaria",
+        description: "Informe a geracao total do periodo ou a potencia instalada.",
+        variant: "destructive",
+      });
       return;
     }
 
     setStepError(undefined);
-    setStep("uploading");
+    setAnalysisResult(null);
+    setShowResults(false);
+
+    const monitoredGeneration = hasSolar && solarGeneration ? parseFloat(solarGeneration) : 0;
+    const potencyKwp = hasSolar && installedPotency ? parseFloat(installedPotency) : undefined;
+    const generatedPerBill = hasSolar && analyzableBills.length > 0 ? monitoredGeneration / analyzableBills.length : 0;
+    const successful: IndividualBillResult[] = [];
+    let failedCount = bills.length - analyzableBills.length;
 
     try {
-      let imageBase64: string;
-      let imageMimeType = file.type;
-
-      // 1) Uploading – convert PDF to image if needed
-      if (isPdfFile(file)) {
-        const images = await pdfToImages(file, { maxPages: 1, scale: 3, password: pdfPassword || undefined });
-        if (!images.length) throw new Error("Não foi possível ler o PDF");
-        imageBase64 = images[0].base64.split(",")[1];
-        imageMimeType = "image/png";
-      } else {
-        imageBase64 = await fileToBase64(file);
-      }
-
-      // Extracting data via OCR
-      setStep("extracting");
-      const monitoredGeneration = hasSolar && solarGeneration ? parseFloat(solarGeneration) : 0;
-      const potencyKwp = hasSolar && installedPotency ? parseFloat(installedPotency) : undefined;
-
-      const { data, error } = await supabase.functions.invoke("analyze-bill", {
-        body: {
-          fileBase64: imageBase64,
-          fileType: imageMimeType,
-          monitoredGeneration,
-          quickAnalysis: true,
-          has_solar: hasSolar,
-          installed_potency_kwp: potencyKwp
-        },
-      });
-
-      if (error) throw error;
-      if (!data.success) throw new Error(data.error || "Erro na análise");
-
-      // Calculating
-      setStep("calculating");
-      const result = data.data;
-      const rawData = data.rawData || result;
-
-      // === CÁLCULOS DO CLARIFIER ===
-      const availabilityCost = toNumber(result.availability_cost || rawData.availability_cost, 0);
-      const publicLightingCost = toNumber(result.public_lighting_cost || rawData.public_lighting_cost, 0);
-      const minimumPossible = availabilityCost + publicLightingCost;
-      const totalPaid = toNumber(result.total_amount || rawData.total_amount, 0);
-      const uncompensatedCost = Math.max(0, totalPaid - minimumPossible);
-
-      if (hasSolar) {
-        const generated = monitoredGeneration;
-        const injected = toNumber(result.injected_energy_kwh || rawData.injected_energy_kwh, 0);
-        const compensated = toNumber(result.compensated_energy_kwh || rawData.compensated_energy_kwh, 0);
-        const creditsBalance = toNumber(result.current_credits_kwh || rawData.current_credits_kwh, 0);
-        const expectedGeneration = toNumber(result.expected_generation_kwh, 0) || generated;
-        const billedConsumption = toNumber(result.billed_consumption_kwh || rawData.measured_consumption_kwh, 0);
-        const geracaoNecessaria = Math.max(0, billedConsumption - compensated);
-
-        let systemStatus: ClarifierResult["systemStatus"] = "adequate";
-        if (generated >= geracaoNecessaria) {
-          systemStatus = "adequate";
-        } else if (generated >= geracaoNecessaria * 0.8) {
-          systemStatus = "slightly_below";
-        } else {
-          systemStatus = "below_needed";
+      for (const [index, bill] of analyzableBills.entries()) {
+        try {
+          const result = await analyzeSingleBill(bill, index, analyzableBills.length, generatedPerBill, potencyKwp);
+          successful.push(result);
+        } catch (err) {
+          failedCount += 1;
+          const msg = err instanceof Error ? err.message : "Nao foi possivel analisar a conta";
+          updateBill(bill.id, { status: "error", error: msg });
         }
-
-        const extraGenerationNeeded = Math.max(0, geracaoNecessaria - generated);
-        const expansionKwp = extraGenerationNeeded > 0 ? extraGenerationNeeded / 150 : undefined;
-        const expansionModules = expansionKwp ? Math.ceil(expansionKwp / 0.4) : undefined;
-
-        setAnalysisResult({
-          type: "solar",
-          totalPaid,
-          minimumPossible,
-          availabilityCost,
-          publicLightingCost,
-          uncompensatedCost,
-          generated,
-          injected,
-          compensated,
-          creditsBalance,
-          expectedGeneration,
-          actualGeneration: generated,
-          generationGap: Math.max(0, expectedGeneration - generated),
-          systemStatus,
-          extraGenerationNeeded,
-          expansionKwp,
-          expansionModules,
-          distributor: result.distributor || rawData.distributor || "Não identificada",
-          diagnosisDetails: result.diagnosis_details
-        });
-      } else {
-        setAnalysisResult({
-          type: "non-solar",
-          totalPaid,
-          minimumPossible,
-          availabilityCost,
-          publicLightingCost,
-          uncompensatedCost,
-          recommendedKwp: result.recommended_potency_kwp,
-          recommendedModules: result.recommended_modules,
-          potentialSavings: result.potential_monthly_savings,
-          distributor: result.distributor || rawData.distributor || "Não identificada",
-          diagnosisDetails: result.diagnosis_details,
-          billedConsumption: toNumber(result.billed_consumption_kwh || rawData.measured_consumption_kwh, 0)
-        });
       }
 
-      // Show the gate instead of results directly if no leadId
+      if (!successful.length) {
+        throw new Error("Nenhuma conta foi analisada com sucesso.");
+      }
+
+      const finalResult =
+        successful.length === 1 && failedCount === 0
+          ? successful[0]
+          : aggregateBillResults(successful, bills.length, failedCount, hasSolar, monitoredGeneration);
+
+      setAnalysisResult(finalResult);
+      setActiveBillIndex(null);
+
       if (!leadId) {
         setStep("gate");
       } else {
@@ -260,18 +533,25 @@ export default function Index() {
         setShowResults(true);
       }
 
-      toast({ title: "Análise concluída!", description: "Veja o resultado da sua conta." });
+      toast({
+        title: "Analise concluida!",
+        description:
+          successful.length === 1
+            ? "Veja o resultado da sua conta."
+            : `${successful.length} conta(s) analisadas no portfolio.`,
+      });
     } catch (err) {
       console.error("Analysis error:", err);
-      const msg = err instanceof Error ? err.message : "Não foi possível analisar a conta";
+      const msg = err instanceof Error ? err.message : "Nao foi possivel analisar as contas";
       setStep("error");
+      setActiveBillIndex(null);
       setStepError(msg);
-      toast({ title: "Erro na análise", description: msg, variant: "destructive" });
+      toast({ title: "Erro na analise", description: msg, variant: "destructive" });
     }
   };
 
   const handleReset = () => {
-    setFile(null);
+    setBills([]);
     setSolarGeneration("");
     setInstalledPotency("");
     setHasSolar(true);
@@ -279,9 +559,7 @@ export default function Index() {
     setAnalysisResult(null);
     setStep("idle");
     setStepError(undefined);
-    setPdfNeedsPassword(false);
-    setPdfPassword("");
-    // We intentionally do not reset leadId so they don't have to fill the form again
+    setActiveBillIndex(null);
   };
 
   const handleLeadSuccess = (id: string, data: LeadFormData) => {
@@ -291,11 +569,10 @@ export default function Index() {
   };
 
   const handleExpansionClick = () => {
-    // Open WhatsApp or contact form
     const message = encodeURIComponent(
-      `Olá! Gostaria de avaliar uma expansão do meu sistema solar. ` +
-        `Minha geração atual é ${analysisResult?.generated || 0} kWh e preciso de mais ` +
-        `${analysisResult?.extraGenerationNeeded || 0} kWh para pagar apenas o valor mínimo.`
+      `Ola! Gostaria de avaliar uma expansao do meu sistema solar. ` +
+        `Minha geracao atual e ${analysisResult?.generated || 0} kWh e preciso de mais ` +
+        `${analysisResult?.extraGenerationNeeded || 0} kWh para pagar apenas o valor minimo.`,
     );
     window.open(`https://wa.me/558581813110?text=${message}`, "_blank");
   };
@@ -305,18 +582,18 @@ export default function Index() {
     try {
       if (leadId) {
         const { error } = await supabase.functions.invoke("trigger-crm", {
-          body: { leadId, action: "proposal" }
+          body: { leadId, action: "proposal" },
         });
 
         if (error) throw error;
       }
-      
+
       const message = encodeURIComponent(
-        `Olá! Tenho interesse em uma proposta para sistema de energia solar. ` +
-        `Meu sistema sugerido é de ${analysisResult?.recommendedKwp?.toFixed(1) || 0} kWp ` +
-        `com ${analysisResult?.recommendedModules || 0} módulos. ` +
-        `Minha conta analisada foi de R$ ${analysisResult?.totalPaid?.toFixed(2) || 0} ` +
-        `e a economia estimada é de R$ ${analysisResult?.potentialSavings?.toFixed(2) || 0} por mês.`
+        `Ola! Tenho interesse em uma proposta para sistema de energia solar. ` +
+          `Meu sistema sugerido e de ${analysisResult?.recommendedKwp?.toFixed(1) || 0} kWp ` +
+          `com ${analysisResult?.recommendedModules || 0} modulos. ` +
+          `Minha analise somou ${formatCurrency(analysisResult?.totalPaid)} em contas ` +
+          `e a economia estimada e de ${formatCurrency(analysisResult?.potentialSavings)} por mes.`,
       );
       window.open(`https://wa.me/558581813110?text=${message}`, "_blank");
     } catch (e) {
@@ -327,12 +604,14 @@ export default function Index() {
     }
   };
 
-  const canAnalyze = file && !pdfNeedsPassword && step !== "uploading" && step !== "extracting" && step !== "calculating";
+  const isProcessing = PROCESSING_STEPS.includes(step) && step !== "gate";
+  const hasPasswordBlocks = bills.some((bill) => bill.status === "needs_password");
+  const canAnalyze = bills.length > 0 && !hasPasswordBlocks && !isProcessing;
+  const isPortfolio = analysisResult?.mode === "multi_bill";
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="solo-header-bar border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-50">
+      <header className="solo-header-bar sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm">
         <div className="container flex h-16 items-center justify-between">
           <SoloLogo className="h-8 w-auto" />
           <div className="flex items-center gap-2">
@@ -348,103 +627,133 @@ export default function Index() {
         <AnimatePresence mode="wait">
           {!showResults ? (
             step === "gate" ? (
-              <LeadCaptureForm
-                onSuccess={handleLeadSuccess}
-                hasSolar={hasSolar}
-                analysisSummary={analysisResult}
-              />
+              <LeadCaptureForm onSuccess={handleLeadSuccess} hasSolar={hasSolar} analysisSummary={analysisResult} />
             ) : (
-            <motion.div
-              key="upload-form"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="mx-auto max-w-lg space-y-6"
-            >
-              {/* Hero */}
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
-                <h1 className="text-3xl font-bold text-foreground sm:text-4xl leading-tight" style={{ letterSpacing: "-0.025em" }}>
-                  Entenda sua <span className="gradient-text">conta de energia</span>
-                </h1>
-                <p className="mt-3 text-muted-foreground text-sm">
-                  Descubra por que você está pagando esse valor e como pagar menos
-                </p>
-              </motion.div>
+              <motion.div
+                key="upload-form"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="mx-auto max-w-2xl space-y-6"
+              >
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
+                  <h1 className="text-3xl font-bold leading-tight text-foreground sm:text-4xl">
+                    Entenda suas <span className="gradient-text">contas de energia</span>
+                  </h1>
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    Analise uma ou varias contas e veja o custo total do seu portfolio
+                  </p>
+                </motion.div>
 
-              {/* Stepper */}
-              <AnalysisStepper currentStep={step === "gate" ? "calculating" : step as AnalysisStep} errorMessage={stepError} />
+                <AnalysisStepper currentStep={step === "gate" ? "calculating" : (step as AnalysisStep)} errorMessage={stepError} />
 
-              {/* Upload Section */}
-              <div className="space-y-4">
-                {step === "idle" || step === "error" ? (
-                  <BillUpload file={file} onFileSelect={handleFileSelect} onClear={handleClearFile} />
-                ) : (
-                  <div className="rounded-lg bg-primary/10 p-4 border border-primary/20 flex flex-col items-center min-h-[160px] justify-center text-center">
-                    <Loader2 className="h-8 w-8 text-primary animate-spin mb-3" />
-                    <p className="font-medium text-foreground">Analisando sua conta...</p>
-                    <p className="text-sm text-muted-foreground mt-1">Nossa IA está extraindo e processando seus dados.</p>
+                {isProcessing && activeBillIndex !== null && (
+                  <div className="rounded-lg border border-primary/20 bg-primary/10 p-4 text-center">
+                    <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin text-primary" />
+                    <p className="font-medium text-foreground">
+                      Analisando conta {activeBillIndex + 1}/{bills.filter((bill) => bill.status !== "error").length}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">Processamento sequencial para manter a analise estavel.</p>
                   </div>
                 )}
 
-                {/* PDF Password Field */}
-                <AnimatePresence>
-                  {pdfNeedsPassword && file && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="p-4 bg-muted/50 border border-accent space-y-3">
-                        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                          <Lock className="h-4 w-4 text-primary" />
-                          PDF protegido por senha
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Este PDF requer uma senha para ser lido.
-                        </p>
-                        <div className="flex gap-2">
-                          <div className="relative flex-1">
-                            <Input
-                              type={showPassword ? "text" : "password"}
-                              placeholder="Senha do PDF"
-                              value={pdfPassword}
-                              onChange={(e) => setPdfPassword(e.target.value)}
-                              onKeyDown={(e) => e.key === "Enter" && handleValidatePassword()}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowPassword(!showPassword)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                            >
-                              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                            </button>
+                {!isProcessing && (
+                  <BillUpload
+                    multiple
+                    files={bills.map((bill) => bill.file)}
+                    onFilesSelect={handleFilesSelect}
+                    onClear={bills.length ? handleClearBills : undefined}
+                  />
+                )}
+
+                {bills.length > 0 && (
+                  <div className="space-y-3">
+                    {bills.map((bill) => (
+                      <motion.div
+                        key={bill.id}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="rounded-lg border border-border bg-card p-4"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                            {bill.status === "done" ? <CheckCircle2 className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
                           </div>
-                          <Button onClick={handleValidatePassword} disabled={!pdfPassword || checkingPdf}>
-                            {checkingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : "Desbloquear"}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-sm font-medium text-foreground">{bill.file.name}</p>
+                              <Badge variant={bill.status === "error" ? "destructive" : bill.status === "done" ? "default" : "secondary"}>
+                                {getStatusLabel(bill.status)}
+                              </Badge>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">{(bill.file.size / 1024 / 1024).toFixed(2)} MB</p>
+                            {bill.error && <p className="mt-2 text-xs text-destructive">{bill.error}</p>}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            disabled={isProcessing}
+                            onClick={() => handleRemoveBill(bill.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
 
-                {file && (step === "idle" || step === "error") && (
+                        {bill.status === "needs_password" && (
+                          <div className="mt-3 space-y-2 border-t border-border pt-3">
+                            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                              <Lock className="h-4 w-4 text-primary" />
+                              PDF protegido por senha
+                            </div>
+                            <div className="flex gap-2">
+                              <div className="relative flex-1">
+                                <Input
+                                  type={bill.showPassword ? "text" : "password"}
+                                  placeholder="Senha do PDF"
+                                  value={bill.password}
+                                  onChange={(e) => updateBill(bill.id, { password: e.target.value })}
+                                  onKeyDown={(e) => e.key === "Enter" && handleValidatePassword(bill.id)}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => updateBill(bill.id, { showPassword: !bill.showPassword })}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                >
+                                  {bill.showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </button>
+                              </div>
+                              <Button onClick={() => handleValidatePassword(bill.id)} disabled={!bill.password}>
+                                Desbloquear
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+
+                {bills.length > 0 && !isProcessing && (
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 rounded-xl border border-border bg-card p-5">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-4">
                       <div>
-                        <h3 className="font-medium text-foreground text-sm">Você já possui energia solar?</h3>
-                        <p className="text-xs text-muted-foreground">Isso nos ajuda a personalizar sua análise</p>
+                        <h3 className="text-sm font-medium text-foreground">Voce ja possui energia solar?</h3>
+                        <p className="text-xs text-muted-foreground">A geracao informada sera tratada como total do portfolio</p>
                       </div>
-                      <div className="flex items-center bg-muted rounded-full p-1 cursor-pointer">
-                        <div 
-                          className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${!hasSolar ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
+                      <div className="flex cursor-pointer items-center rounded-full bg-muted p-1">
+                        <div
+                          className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                            !hasSolar ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
+                          }`}
                           onClick={() => setHasSolar(false)}
                         >
-                          Não
+                          Nao
                         </div>
-                        <div 
-                          className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${hasSolar ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
+                        <div
+                          className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                            hasSolar ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
+                          }`}
                           onClick={() => setHasSolar(true)}
                         >
                           Sim
@@ -458,23 +767,23 @@ export default function Index() {
                           initial={{ opacity: 0, height: 0 }}
                           animate={{ opacity: 1, height: "auto" }}
                           exit={{ opacity: 0, height: 0 }}
-                          className="space-y-4 pt-2 border-t border-border overflow-hidden"
+                          className="space-y-4 overflow-hidden border-t border-border pt-2"
                         >
                           <div>
-                            <label className="text-xs font-medium text-foreground mb-1 block">Geração no Mês (kWh) *</label>
-                            <Input 
-                              value={solarGeneration} 
-                              onChange={(e) => setSolarGeneration(e.target.value)} 
-                              placeholder="Ex: 500" 
+                            <label className="mb-1 block text-xs font-medium text-foreground">Geracao total no periodo (kWh) *</label>
+                            <Input
+                              value={solarGeneration}
+                              onChange={(e) => setSolarGeneration(e.target.value)}
+                              placeholder="Ex: 2500"
                               type="number"
                             />
                           </div>
                           <div>
-                            <label className="text-xs font-medium text-foreground mb-1 block">Potência Instalada (kWp) - Opcional</label>
-                            <Input 
-                              value={installedPotency} 
-                              onChange={(e) => setInstalledPotency(e.target.value)} 
-                              placeholder="Ex: 4.5" 
+                            <label className="mb-1 block text-xs font-medium text-foreground">Potencia instalada total (kWp) - Opcional</label>
+                            <Input
+                              value={installedPotency}
+                              onChange={(e) => setInstalledPotency(e.target.value)}
+                              placeholder="Ex: 18.6"
                               type="number"
                               step="0.01"
                             />
@@ -485,37 +794,35 @@ export default function Index() {
                   </motion.div>
                 )}
 
-                {step === "idle" || step === "error" ? (
+                {!isProcessing && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
                     <Button variant="gradient" size="xl" className="w-full" onClick={handleAnalyze} disabled={!canAnalyze}>
-                      <Zap className="h-5 w-5 mr-2" />
-                      Analisar Conta
+                      <Zap className="mr-2 h-5 w-5" />
+                      {bills.length > 1 ? `Analisar ${bills.length} contas` : "Analisar Conta"}
                     </Button>
                   </motion.div>
-                ) : null}
+                )}
 
                 {step === "error" && (
                   <Button variant="outline" className="w-full" onClick={handleReset}>
-                    <RotateCcw className="h-4 w-4 mr-2" /> Tentar novamente
+                    <RotateCcw className="mr-2 h-4 w-4" /> Tentar novamente
                   </Button>
                 )}
-              </div>
 
-              {/* Trust badges */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.3 }}
-                className="mt-4 flex items-center justify-center gap-6 text-xs text-muted-foreground"
-              >
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 bg-emerald-500" /> Análise segura
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 bg-primary" /> Respostas claras
-                </span>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.3 }}
+                  className="mt-4 flex items-center justify-center gap-6 text-xs text-muted-foreground"
+                >
+                  <span className="flex items-center gap-1">
+                    <span className="h-2 w-2 bg-emerald-500" /> Analise segura
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-2 w-2 bg-primary" /> Respostas claras
+                  </span>
+                </motion.div>
               </motion.div>
-            </motion.div>
             )
           ) : (
             analysisResult && (
@@ -525,36 +832,47 @@ export default function Index() {
                 animate={{ opacity: 1, y: 0 }}
                 className="mx-auto max-w-2xl space-y-4"
               >
-                {/* Common Result Area */}
-                <div className="flex items-center justify-between mb-6">
+                <div className="mb-6 flex items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-bold text-foreground">Resultado da Análise</h2>
-                    <p className="text-sm text-muted-foreground">{analysisResult.distributor}</p>
+                    <h2 className="text-xl font-bold text-foreground">
+                      {isPortfolio ? "Resultado do Portfolio" : "Resultado da Analise"}
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      {isPortfolio
+                        ? `${analysisResult.successfulCount}/${analysisResult.billCount} contas analisadas - ${analysisResult.distributor}`
+                        : analysisResult.distributor}
+                    </p>
                   </div>
                   <Button variant="outline" size="sm" onClick={handleReset}>
-                    <RotateCcw className="h-4 w-4 mr-2" />
-                    Nova análise
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Nova analise
                   </Button>
                 </div>
+
+                {isPortfolio && analysisResult.warnings?.length > 0 && (
+                  <div className="space-y-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-4">
+                    {analysisResult.warnings.map((warning: string) => (
+                      <div key={warning} className="flex gap-2 text-sm text-foreground">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                        <span>{warning}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {analysisResult.type === "solar" ? (
                   <>
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="text-center px-4 py-3 bg-muted/30 rounded-lg border border-border"
+                      className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-center"
                     >
-                      <p className="text-sm text-muted-foreground italic">
-                        "Energia solar não zera a conta — ela reduz o consumo.
-                        <br />
-                        Aqui está exatamente como isso aconteceu no seu caso."
+                      <p className="text-sm italic text-muted-foreground">
+                        Energia solar nao zera a conta; ela reduz o consumo. Aqui esta como isso apareceu nesta analise.
                       </p>
                     </motion.div>
 
-                    <BillSummaryCard
-                      totalPaid={analysisResult.totalPaid}
-                      minimumPossible={analysisResult.minimumPossible}
-                    />
+                    <BillSummaryCard totalPaid={analysisResult.totalPaid} minimumPossible={analysisResult.minimumPossible} />
 
                     <CostCompositionCard
                       availabilityCost={analysisResult.availabilityCost}
@@ -563,20 +881,20 @@ export default function Index() {
                     />
 
                     <SolarEnergyCard
-                      generated={analysisResult.generated}
-                      injected={analysisResult.injected}
-                      compensated={analysisResult.compensated}
-                      creditsBalance={analysisResult.creditsBalance}
+                      generated={analysisResult.generated || 0}
+                      injected={analysisResult.injected || 0}
+                      compensated={analysisResult.compensated || 0}
+                      creditsBalance={analysisResult.creditsBalance || 0}
                     />
 
                     <SystemStatusCard
-                      expectedGeneration={analysisResult.expectedGeneration}
-                      actualGeneration={analysisResult.actualGeneration}
-                      status={analysisResult.systemStatus}
+                      expectedGeneration={analysisResult.expectedGeneration || 0}
+                      actualGeneration={analysisResult.actualGeneration || 0}
+                      status={analysisResult.systemStatus || "adequate"}
                     />
 
                     <ActionCard
-                      extraGenerationNeeded={analysisResult.extraGenerationNeeded}
+                      extraGenerationNeeded={analysisResult.extraGenerationNeeded || 0}
                       expansionKwp={analysisResult.expansionKwp}
                       expansionModules={analysisResult.expansionModules}
                       onExpansionClick={handleExpansionClick}
@@ -593,21 +911,53 @@ export default function Index() {
                     isLoading={isCrmLoading}
                   />
                 )}
-                
-                <FreemiumBanner 
-                  onSignUp={() => window.location.href = `/auth?returnTo=dashboard`} 
-                />
+
+                {isPortfolio && (
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold text-foreground">Contas individuais</h3>
+                    {analysisResult.bills.map((bill: IndividualBillResult) => (
+                      <div key={bill.id} className="rounded-lg border border-border bg-card p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground">{bill.fileName}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {[bill.referenceMonth, bill.distributor, bill.holder].filter(Boolean).join(" - ")}
+                            </p>
+                          </div>
+                          <Badge variant="secondary">{formatCurrency(bill.totalPaid)}</Badge>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <p className="text-xs text-muted-foreground">Consumo</p>
+                            <p className="font-medium text-foreground">{bill.billedConsumption || 0} kWh</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">
+                              {analysisResult.type === "solar" ? "Geracao faltante" : "Sistema sugerido"}
+                            </p>
+                            <p className="font-medium text-foreground">
+                              {analysisResult.type === "solar"
+                                ? `${bill.extraGenerationNeeded || 0} kWh`
+                                : `${bill.recommendedKwp?.toFixed(2) || "0.00"} kWp`}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <FreemiumBanner onSignUp={() => (window.location.href = `/auth?returnTo=dashboard`)} />
               </motion.div>
             )
           )}
         </AnimatePresence>
       </main>
 
-      {/* Footer */}
       <footer className="border-t border-border bg-card py-6">
         <div className="container text-center">
           <SoloLogo className="mx-auto h-6 w-auto opacity-60" />
-          <p className="mt-2 text-xs text-muted-foreground">© 2025 Solo Energia. Você no controle da sua energia.</p>
+          <p className="mt-2 text-xs text-muted-foreground">© 2025 Solo Energia. Voce no controle da sua energia.</p>
         </div>
       </footer>
     </div>
