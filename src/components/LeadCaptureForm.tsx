@@ -28,13 +28,22 @@ const formSchema = z.object({
 
 export type LeadFormData = z.infer<typeof formSchema>;
 
+interface ReferralPartner {
+  id: string;
+  name: string;
+  phone?: string | null;
+  coupon_code: string;
+  discount_percent: number;
+}
+
 interface LeadCaptureFormProps {
   onSuccess: (leadId: string, leadData: LeadFormData) => void;
   hasSolar: boolean;
   analysisSummary?: unknown;
+  referralPartner?: ReferralPartner | null;
 }
 
-export function LeadCaptureForm({ onSuccess, hasSolar, analysisSummary }: LeadCaptureFormProps) {
+export function LeadCaptureForm({ onSuccess, hasSolar, analysisSummary, referralPartner }: LeadCaptureFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
@@ -63,13 +72,29 @@ export function LeadCaptureForm({ onSuccess, hasSolar, analysisSummary }: LeadCa
     setIsSubmitting(true);
     try {
       trackMetaCustomEvent("LeadFormSubmitClick", {
-        source: "lead_magnet_gate",
+        source: referralPartner ? "lead_magnet_referral" : "lead_magnet_gate",
         has_solar: hasSolar,
+        referral_coupon: referralPartner?.coupon_code,
       });
 
       // Remover máscara do whatsapp para salvar no banco
       const cleanWhatsapp = data.whatsapp.replace(/\D/g, "");
       const generatedId = crypto.randomUUID();
+      const analysisWithReferral =
+        analysisSummary && typeof analysisSummary === "object"
+          ? {
+              ...(analysisSummary as Record<string, unknown>),
+              referral: referralPartner
+                ? {
+                    partner_id: referralPartner.id,
+                    partner_name: referralPartner.name,
+                    partner_phone: referralPartner.phone,
+                    coupon_code: referralPartner.coupon_code,
+                    discount_percent: referralPartner.discount_percent,
+                  }
+                : null,
+            }
+          : analysisSummary || null;
 
       const { error } = await db("leads")
         .insert({
@@ -78,15 +103,20 @@ export function LeadCaptureForm({ onSuccess, hasSolar, analysisSummary }: LeadCa
           email: data.email,
           whatsapp: cleanWhatsapp,
           has_solar: hasSolar,
-          analysis_summary: analysisSummary || null,
-          source: "lead_magnet_gate",
+          analysis_summary: analysisWithReferral,
+          partner_id: referralPartner?.id || null,
+          referral_coupon_code: referralPartner?.coupon_code || null,
+          referral_discount_percent: referralPartner?.discount_percent || null,
+          referral_status: referralPartner ? "lead_captured" : null,
+          source: referralPartner ? "lead_magnet_referral" : "lead_magnet_gate",
         });
 
       if (error) throw error;
 
       trackMetaLead({
-        source: "lead_magnet_gate",
+        source: referralPartner ? "lead_magnet_referral" : "lead_magnet_gate",
         has_solar: hasSolar,
+        referral_coupon: referralPartner?.coupon_code,
       });
 
       const { error: crmError } = await supabase.functions.invoke("trigger-crm", {

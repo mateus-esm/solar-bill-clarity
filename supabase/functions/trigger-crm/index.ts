@@ -17,6 +17,7 @@ const MODULE_POWER_KWP = MODULE_POWER_W / 1000;
 const GENERATION_PER_KWP_MONTH = 120;
 const PERFORMANCE_RATIO = 0.8;
 const SOLPLANET_INVERTERS_KW = [5, 7, 9.1, 15, 25];
+const REFERRAL_DISCOUNT_PERCENT = 5;
 
 type Lead = {
   id: string;
@@ -29,9 +30,21 @@ type Lead = {
   utm_source?: string | null;
   utm_medium?: string | null;
   utm_campaign?: string | null;
+  partner_id?: string | null;
+  referral_coupon_code?: string | null;
+  referral_discount_percent?: number | null;
+  referral_status?: string | null;
 };
 
 type WorkflowAction = "lead" | "proposal";
+
+type Partner = {
+  id: string;
+  name: string;
+  phone?: string | null;
+  coupon_code: string;
+  status: string;
+};
 
 function toNumber(value: unknown, fallback = 0): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -137,6 +150,10 @@ function buildSizing(lead: Lead) {
   const peakKwp = round(modules * MODULE_POWER_KWP, 2);
   const inverterKw = chooseInverter(peakKwp);
   const priceTotal = round(peakKwp * DEFAULT_KWP_PRICE, 2);
+  const hasReferral = Boolean(lead.partner_id && lead.referral_coupon_code);
+  const discountPercent = hasReferral ? toNumber(lead.referral_discount_percent, REFERRAL_DISCOUNT_PERCENT) : 0;
+  const discountAmount = round(priceTotal * (discountPercent / 100), 2);
+  const discountedPriceTotal = round(priceTotal - discountAmount, 2);
   const estimatedMonthlyGeneration = Math.round(peakKwp * GENERATION_PER_KWP_MONTH * PERFORMANCE_RATIO);
   const estimatedSavings = potentialSavings > 0
     ? potentialSavings
@@ -157,18 +174,27 @@ function buildSizing(lead: Lead) {
     peakKwp,
     inverterKw,
     priceTotal,
+    discountPercent,
+    discountAmount,
+    discountedPriceTotal,
     estimatedMonthlyGeneration,
   };
 }
 
-function buildCommercialObs(lead: Lead): string {
+function buildReferralLine(lead: Lead, partner: Partner | null): string | null {
+  if (!lead.partner_id || !lead.referral_coupon_code || !partner) return null;
+  return `Indicacao Solo: cupom ${lead.referral_coupon_code}, parceiro ${partner.name}, telefone ${partner.phone || "Nao informado"}, desconto ${REFERRAL_DISCOUNT_PERCENT}%.`;
+}
+
+function buildCommercialObs(lead: Lead, partner: Partner | null): string {
   const analysis = lead.analysis_summary ?? {};
   const sizing = buildSizing(lead);
   const distributor = String(analysis.distributor || "Nao identificada");
   const diagnosis = String(analysis.diagnosisDetails || analysis.diagnosis_details || "Sem diagnostico detalhado.");
   const systemType = sizing.isSolar ? "Cliente com sistema solar" : "Cliente sem sistema solar";
+  const referralLine = buildReferralLine(lead, partner);
 
-  return [
+  const lines = [
     "Solo Proposal Engine - lead gerado pelo Raio-X da Conta de Energia.",
     `${systemType}. Distribuidora: ${distributor}.`,
     `Conta analisada: valor total ${formatMoney(sizing.totalPaid)}; minimo/taxas ${formatMoney(sizing.minimumPossible)}; consumo faturado ${formatKwh(sizing.billedConsumption)}.`,
@@ -177,16 +203,29 @@ function buildCommercialObs(lead: Lead): string {
       ? `Dados solares: geracao informada ${formatKwh(sizing.generated)}; energia compensada ${formatKwh(sizing.compensated)}; saldo de creditos ${formatKwh(sizing.creditsBalance)}; geracao extra necessaria ${formatKwh(sizing.extraGenerationNeeded)}.`
       : `Oportunidade: economia mensal estimada ${formatMoney(sizing.potentialSavings)} com sistema fotovoltaico dimensionado pela fatura.`,
     `Proposta automatica sugerida: ${sizing.peakKwp.toFixed(2)} kWp, ${sizing.modules} modulos Leapton ${MODULE_POWER_W}W, inversor SolPlanet ${sizing.inverterKw} kW, geracao estimada ${formatKwh(sizing.estimatedMonthlyGeneration)}, preco base ${formatMoney(sizing.priceTotal)} (${formatMoney(DEFAULT_KWP_PRICE)}/kWp).`,
-  ].join("\n");
+  ];
+
+  if (referralLine) lines.push(referralLine);
+  return lines.join("\n");
 }
 
-function buildCrmPayload(lead: Lead) {
-  return {
+function buildCrmPayload(lead: Lead, partner: Partner | null) {
+  const payload: Record<string, unknown> = {
     nome: lead.name,
     email: lead.email,
     tel: lead.whatsapp,
-    obs: buildCommercialObs(lead),
+    obs: buildCommercialObs(lead, partner),
   };
+
+  if (partner && lead.referral_coupon_code) {
+    payload.canal_captacao = "Indicação";
+    payload.indicador_nome = partner.name;
+    payload.indicador_telefone = partner.phone || "";
+    payload.cupom_indicacao = lead.referral_coupon_code;
+    payload.desconto_indicacao_percentual = REFERRAL_DISCOUNT_PERCENT;
+  }
+
+  return payload;
 }
 
 function getStoredJestorId(lead: Lead): string | null {
@@ -207,6 +246,8 @@ async function persistCrmMetadata(
   supabaseClient: any,
   lead: Lead,
   jestorId: string | null,
+  partner: Partner | null,
+  action: WorkflowAction,
 ) {
   const analysis = lead.analysis_summary ?? {};
 
@@ -223,14 +264,21 @@ async function persistCrmMetadata(
       },
     })
     .eq("id", lead.id);
+
+  if (partner && lead.partner_id && lead.referral_coupon_code) {
+    await upsertPartnerReferral(supabaseClient, lead, partner, action === "proposal" ? "proposal_requested" : "lead_captured", jestorId, {
+      action,
+      jestor_id: jestorId,
+    });
+  }
 }
 
-function buildN8nPayload(lead: Lead, jestorId: string | null) {
+function buildN8nPayload(lead: Lead, jestorId: string | null, partner: Partner | null) {
   const analysis = lead.analysis_summary ?? {};
   const sizing = buildSizing(lead);
   const distributor = String(analysis.distributor || "Enel Distribuicao Ceara");
 
-  return {
+  const payload: Record<string, unknown> = {
     id_jestor: jestorId,
     nome_cliente: lead.name,
     cpf_cnpj: String(analysis.cpf_cnpj || analysis.cpfCnpj || "Nao informado"),
@@ -247,11 +295,68 @@ function buildN8nPayload(lead: Lead, jestorId: string | null) {
     potencia_inversor_kw: String(sizing.inverterKw),
     tipo_estrutura: "Aluminio Anodizado T6 (Telhado Ondulado)",
     tipo_monitoramento: "Wi-Fi + App iOS/Android",
-    preco_total: String(sizing.priceTotal),
+    preco_total_base: String(sizing.priceTotal),
+    preco_total: String(sizing.discountedPriceTotal),
+    desconto_indicacao_percentual: String(sizing.discountPercent),
+    desconto_indicacao_valor: String(sizing.discountAmount),
     consumo_mensal: String(Math.round(sizing.billedConsumption || sizing.estimatedMonthlyGeneration)),
     equipamentos_extras: "Modulos Leapton 620W, inversor SolPlanet, string box, cabeamento CC/CA e protecoes conforme vistoria tecnica.",
     exclusoes_adicionais: "Adequacoes civis, reforco estrutural, troca de padrao, aumento de carga e custos da concessionaria quando aplicaveis.",
   };
+
+  if (partner && lead.referral_coupon_code) {
+    payload.canal_captacao = "Indicação";
+    payload.indicador_nome = partner.name;
+    payload.indicador_telefone = partner.phone || "";
+    payload.cupom_indicacao = lead.referral_coupon_code;
+  }
+
+  return payload;
+}
+
+async function getLeadPartner(supabaseClient: any, lead: Lead): Promise<Partner | null> {
+  if (!lead.partner_id) return null;
+
+  const { data, error } = await supabaseClient
+    .from("partners")
+    .select("id,name,phone,coupon_code,status")
+    .eq("id", lead.partner_id)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as Partner | null;
+}
+
+async function upsertPartnerReferral(
+  supabaseClient: any,
+  lead: Lead,
+  partner: Partner,
+  status: string,
+  jestorId: string | null,
+  crmPayload: unknown,
+) {
+  const { error } = await supabaseClient
+    .from("partner_referrals")
+    .upsert(
+      {
+        partner_id: partner.id,
+        lead_id: lead.id,
+        coupon_code: lead.referral_coupon_code || partner.coupon_code,
+        discount_percent: REFERRAL_DISCOUNT_PERCENT,
+        status,
+        crm_lead_id: jestorId,
+        crm_payload: crmPayload,
+      },
+      { onConflict: "lead_id" },
+    );
+
+  if (error) throw error;
+
+  await supabaseClient
+    .from("leads")
+    .update({ referral_status: status })
+    .eq("id", lead.id);
 }
 
 async function postJson(url: string, payload: unknown) {
@@ -318,14 +423,15 @@ serve(async (req) => {
     let crmPayload: ReturnType<typeof buildCrmPayload> | null = null;
     let n8nPayload: ReturnType<typeof buildN8nPayload> | null = null;
     let jestorId = getStoredJestorId(typedLead);
+    const partner = await getLeadPartner(supabaseClient, typedLead);
 
     if (action === "lead") {
-      crmPayload = buildCrmPayload(typedLead);
+      crmPayload = buildCrmPayload(typedLead, partner);
 
       console.log(`Sending lead ${typedLead.id} to CRM webhook...`);
       const crmResult = await postJson(crmWebhookUrl, crmPayload);
       jestorId = extractJestorId(crmResult) || jestorId;
-      await persistCrmMetadata(supabaseClient, typedLead, jestorId);
+      await persistCrmMetadata(supabaseClient, typedLead, jestorId, partner, action);
 
       return new Response(
         JSON.stringify({
@@ -341,7 +447,7 @@ serve(async (req) => {
       );
     }
 
-    n8nPayload = buildN8nPayload(typedLead, jestorId);
+    n8nPayload = buildN8nPayload(typedLead, jestorId, partner);
     console.log(`Triggering Solo Proposal Engine for lead ${typedLead.id}...`);
     await postJson(n8nWebhookUrl, n8nPayload);
 
@@ -349,6 +455,10 @@ serve(async (req) => {
       .from("leads")
       .update({ requested_proposal: true })
       .eq("id", typedLead.id);
+
+    if (partner && typedLead.partner_id && typedLead.referral_coupon_code) {
+      await upsertPartnerReferral(supabaseClient, typedLead, partner, "proposal_requested", jestorId, n8nPayload);
+    }
 
     return new Response(
       JSON.stringify({

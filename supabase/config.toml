@@ -9,3 +9,9 @@ verify_jwt = false
 [functions.trigger-crm]
 enabled = true
 verify_jwt = true
+
+[functions.validate-referral-coupon]
+verify_jwt = false
+
+[functions.referral-status-webhook]
+verify_jwt = false

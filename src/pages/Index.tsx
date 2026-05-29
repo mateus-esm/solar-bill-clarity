@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   AlertTriangle,
@@ -9,6 +9,7 @@ import {
   Loader2,
   Lock,
   RotateCcw,
+  TicketPercent,
   Trash2,
   Zap,
 } from "lucide-react";
@@ -93,7 +94,16 @@ interface BillQueueItem {
   result?: IndividualBillResult;
 }
 
+interface ReferralPartner {
+  id: string;
+  name: string;
+  phone?: string | null;
+  coupon_code: string;
+  discount_percent: number;
+}
+
 const PROCESSING_STEPS: Array<AnalysisStep | "gate"> = ["uploading", "extracting", "calculating", "gate"];
+const REFERRAL_DISCOUNT_PERCENT = 5;
 
 const toNumber = (value: unknown, fallback = 0): number => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -316,6 +326,8 @@ const getStatusLabel = (status: BillStatus) => {
   }
 };
 
+const normalizeCoupon = (value: string) => value.trim().toUpperCase();
+
 export default function Index() {
   const [bills, setBills] = useState<BillQueueItem[]>([]);
 
@@ -329,10 +341,15 @@ export default function Index() {
   );
   const [showResults, setShowResults] = useSessionStorage<boolean>("solo_show_results", false);
   const [leadId, setLeadId] = useSessionStorage<string | null>("solo_lead_id", null);
+  const [referralCoupon, setReferralCoupon] = useSessionStorage<string>("solo_referral_coupon", "");
+  const [referralPartner, setReferralPartner] = useSessionStorage<ReferralPartner | null>("solo_referral_partner", null);
 
   const [stepError, setStepError] = useState<string | undefined>();
   const [activeBillIndex, setActiveBillIndex] = useState<number | null>(null);
   const [isCrmLoading, setIsCrmLoading] = useState(false);
+  const [referralError, setReferralError] = useState<string | undefined>();
+  const [isValidatingReferral, setIsValidatingReferral] = useState(false);
+  const [didApplyUrlReferral, setDidApplyUrlReferral] = useState(false);
 
   const { toast } = useToast();
 
@@ -351,6 +368,72 @@ export default function Index() {
   const updateBill = (id: string, patch: Partial<BillQueueItem>) => {
     setBills((current) => current.map((bill) => (bill.id === id ? { ...bill, ...patch } : bill)));
   };
+
+  const validateReferralCoupon = useCallback(
+    async (coupon: string, showToast = false) => {
+      const couponCode = normalizeCoupon(coupon);
+      setReferralCoupon(couponCode);
+
+      if (!couponCode) {
+        setReferralPartner(null);
+        setReferralError(undefined);
+        return null;
+      }
+
+      setIsValidatingReferral(true);
+      setReferralError(undefined);
+
+      try {
+        const { data, error } = await supabase.functions.invoke("validate-referral-coupon", {
+          body: { coupon: couponCode },
+        });
+
+        if (error) throw error;
+
+        if (data?.valid && data.partner) {
+          const partner: ReferralPartner = {
+            id: data.partner.id,
+            name: data.partner.name,
+            phone: data.partner.phone,
+            coupon_code: data.partner.coupon_code,
+            discount_percent: data.partner.discount_percent || REFERRAL_DISCOUNT_PERCENT,
+          };
+          setReferralPartner(partner);
+          setReferralCoupon(partner.coupon_code);
+          setReferralError(undefined);
+          if (showToast) {
+            toast({
+              title: "Cupom aplicado",
+              description: `${partner.name} liberou 5% de desconto na proposta.`,
+            });
+          }
+          return partner;
+        }
+
+        setReferralPartner(null);
+        setReferralError("Cupom de parceiro invalido ou inativo. Voce pode continuar sem desconto.");
+        return null;
+      } catch (error) {
+        console.error("Referral validation error:", error);
+        setReferralPartner(null);
+        setReferralError("Nao foi possivel validar o cupom agora. Voce pode continuar sem desconto.");
+        return null;
+      } finally {
+        setIsValidatingReferral(false);
+      }
+    },
+    [setReferralCoupon, setReferralPartner, toast],
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (didApplyUrlReferral) return;
+    const urlCoupon = new URLSearchParams(window.location.search).get("ref");
+    if (urlCoupon && normalizeCoupon(urlCoupon) !== referralPartner?.coupon_code) {
+      setDidApplyUrlReferral(true);
+      void validateReferralCoupon(urlCoupon, false);
+    }
+  }, [didApplyUrlReferral, referralPartner?.coupon_code, validateReferralCoupon]);
 
   const handleFilesSelect = async (selectedFiles: File[]) => {
     const nextBills = selectedFiles.map((selectedFile) => ({
@@ -562,6 +645,12 @@ export default function Index() {
     setActiveBillIndex(null);
   };
 
+  const handleClearReferral = () => {
+    setReferralCoupon("");
+    setReferralPartner(null);
+    setReferralError(undefined);
+  };
+
   const handleLeadSuccess = (id: string, data: LeadFormData) => {
     setLeadId(id);
     setStep("completed");
@@ -593,7 +682,8 @@ export default function Index() {
           `Meu sistema sugerido e de ${analysisResult?.recommendedKwp?.toFixed(1) || 0} kWp ` +
           `com ${analysisResult?.recommendedModules || 0} modulos. ` +
           `Minha analise somou ${formatCurrency(analysisResult?.totalPaid)} em contas ` +
-          `e a economia estimada e de ${formatCurrency(analysisResult?.potentialSavings)} por mes.`,
+          `e a economia estimada e de ${formatCurrency(analysisResult?.potentialSavings)} por mes.` +
+          (referralPartner ? ` Cupom parceiro aplicado: ${referralPartner.coupon_code} com 5% de desconto.` : ""),
       );
       window.open(`https://wa.me/558581813110?text=${message}`, "_blank");
     } catch (e) {
@@ -627,7 +717,12 @@ export default function Index() {
         <AnimatePresence mode="wait">
           {!showResults ? (
             step === "gate" ? (
-              <LeadCaptureForm onSuccess={handleLeadSuccess} hasSolar={hasSolar} analysisSummary={analysisResult} />
+              <LeadCaptureForm
+                onSuccess={handleLeadSuccess}
+                hasSolar={hasSolar}
+                analysisSummary={analysisResult}
+                referralPartner={referralPartner}
+              />
             ) : (
               <motion.div
                 key="upload-form"
@@ -664,6 +759,63 @@ export default function Index() {
                     onFilesSelect={handleFilesSelect}
                     onClear={bills.length ? handleClearBills : undefined}
                   />
+                )}
+
+                {!isProcessing && (
+                  <div className="rounded-xl border border-border bg-card p-5">
+                    <div className="mb-3 flex items-start gap-3">
+                      <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                        <TicketPercent className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-semibold text-foreground">Codigo do Parceiro Solo</h3>
+                        <p className="text-xs text-muted-foreground">Desbloqueie condicoes especiais na proposta.</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        value={referralCoupon}
+                        onChange={(event) => {
+                          setReferralCoupon(event.target.value.toUpperCase());
+                          setReferralPartner(null);
+                          setReferralError(undefined);
+                        }}
+                        onBlur={() => referralCoupon && !referralPartner && validateReferralCoupon(referralCoupon)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void validateReferralCoupon(referralCoupon, true);
+                          }
+                        }}
+                        placeholder="Ex: SOLO-MARIA"
+                        disabled={isValidatingReferral}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => validateReferralCoupon(referralCoupon, true)}
+                        disabled={!referralCoupon || isValidatingReferral}
+                      >
+                        {isValidatingReferral ? <Loader2 className="h-4 w-4 animate-spin" /> : "Aplicar"}
+                      </Button>
+                    </div>
+                    {referralPartner && (
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm">
+                        <span className="text-emerald-700 dark:text-emerald-400">
+                          Cupom aplicado: {referralPartner.name} - 5% de desconto na proposta.
+                        </span>
+                        <button className="text-xs font-medium text-muted-foreground hover:text-foreground" onClick={handleClearReferral}>
+                          Remover
+                        </button>
+                      </div>
+                    )}
+                    {referralError && (
+                      <div className="mt-3 flex gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-foreground">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                        <span>{referralError}</span>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {bills.length > 0 && (
