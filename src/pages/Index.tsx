@@ -671,7 +671,7 @@ export default function Index() {
     try {
       if (leadId) {
         const { error } = await supabase.functions.invoke("trigger-crm", {
-          body: { leadId, action: "proposal" },
+          body: { leadId, action: "proposal", omitJestorId: true },
         });
 
         if (error) throw error;

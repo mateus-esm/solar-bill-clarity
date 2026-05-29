@@ -267,13 +267,17 @@ async function persistCrmMetadata(
   }
 }
 
-function buildN8nPayload(lead: Lead, jestorId: string | null, partner: Partner | null) {
+function buildN8nPayload(
+  lead: Lead,
+  jestorId: string | null,
+  partner: Partner | null,
+  options: { omitJestorId?: boolean } = {},
+) {
   const analysis = lead.analysis_summary ?? {};
   const sizing = buildSizing(lead);
   const distributor = String(analysis.distributor || "Enel Distribuicao Ceara");
 
   const payload: Record<string, unknown> = {
-    id_jestor: jestorId,
     nome_cliente: lead.name,
     cpf_cnpj: String(analysis.cpf_cnpj || analysis.cpfCnpj || "Nao informado"),
     endereco_instalacao: String(analysis.endereco_instalacao || analysis.address || "Nao identificado na fatura"),
@@ -297,6 +301,10 @@ function buildN8nPayload(lead: Lead, jestorId: string | null, partner: Partner |
     equipamentos_extras: "Modulos Leapton 620W, inversor SolPlanet, string box, cabeamento CC/CA e protecoes conforme vistoria tecnica.",
     exclusoes_adicionais: "Adequacoes civis, reforco estrutural, troca de padrao, aumento de carga e custos da concessionaria quando aplicaveis.",
   };
+
+  if (!options.omitJestorId) {
+    payload.id_jestor = jestorId;
+  }
 
   if (partner && lead.referral_coupon_code) {
     payload.canal_captacao = "Indicação";
@@ -381,9 +389,10 @@ serve(async (req) => {
   }
 
   try {
-    const { leadId, action = "lead" } = await req.json() as {
+    const { leadId, action = "lead", omitJestorId = false } = await req.json() as {
       leadId?: string;
       action?: WorkflowAction;
+      omitJestorId?: boolean;
     };
 
     if (!leadId) {
@@ -441,7 +450,7 @@ serve(async (req) => {
       );
     }
 
-    n8nPayload = buildN8nPayload(typedLead, jestorId, partner);
+    n8nPayload = buildN8nPayload(typedLead, jestorId, partner, { omitJestorId });
     console.log(`Triggering Solo Proposal Engine for lead ${typedLead.id}...`);
     await postJson(n8nWebhookUrl, n8nPayload);
 
