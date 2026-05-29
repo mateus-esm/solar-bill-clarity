@@ -1,0 +1,120 @@
+{
+  "name": "Solo - Lead Magnet Billing Router",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "8cd82666-6aee-4a0d-9b95-6ede8fd6f904",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9a81d4b1-54ee-4672-a94c-3a6b191b04df",
+      "name": "Webhook - Lead Billing"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst body = input.body || input;\n\nconst referralName = String(body.refferal_name || '').trim();\nconst referralPhone = String(body.referral_phone || '').trim();\nconst hasReferral = Boolean(referralName || referralPhone);\nconst baseObs = String(body.obs || '').trim();\n\nconst obsParts = [baseObs];\nif (hasReferral) {\n  obsParts.push(`Indicação: ${referralName || 'Não informado'} (${referralPhone || 'sem telefone'}).`);\n}\n\nreturn [{\n  json: {\n    nome: String(body.nome || '').trim(),\n    email: String(body.email || '').trim(),\n    tel: String(body.tel || '').replace(/\\D/g, ''),\n    obs: obsParts.filter(Boolean).join('\\n'),\n    canal_captacao: hasReferral ? 'Lead Magnet - Billing (Partner)' : 'Lead Magnet - Billing',\n    indicador_nome: referralName,\n    indicador_telefone: referralPhone,\n    payload_original: body\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "e4f539de-8035-4c86-8a21-fc288bdbb2c6",
+      "name": "Preparar Payload Jestor"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://mateussmaia.api.jestor.com/webhook/OWU2NWY2OTQ1YWZjMzMx82383bc02aMTc3ODExNjkzNGFkMWI1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ nome: $json.nome, email: $json.email, tel: $json.tel, obs: $json.obs, canal_captacao: $json.canal_captacao, indicador_nome: $json.indicador_nome, indicador_telefone: $json.indicador_telefone }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        0
+      ],
+      "id": "4583d849-a6a5-4030-8cd1-a0ce8dbf41bd",
+      "name": "Enviar para Jestor"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, jestor_response: $json }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        760,
+        0
+      ],
+      "id": "dc6eeac4-d5c6-404f-8d69-735b8e61d870",
+      "name": "Responder"
+    }
+  ],
+  "connections": {
+    "Webhook - Lead Billing": {
+      "main": [
+        [
+          {
+            "node": "Preparar Payload Jestor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Payload Jestor": {
+      "main": [
+        [
+          {
+            "node": "Enviar para Jestor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar para Jestor": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-05-29T00:00:00.000Z",
+  "versionId": "1"
+}

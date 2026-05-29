@@ -6,8 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const DEFAULT_CRM_WEBHOOK_URL =
-  "https://mateussmaia.api.jestor.com/webhook/OWU2NWY2OTQ1YWZjMzMx82383bc02aMTc3ODExNjkzNGFkMWI1";
+const DEFAULT_LEAD_ROUTER_WEBHOOK_URL =
+  "http://72.61.219.156:5678/webhook/8cd82666-6aee-4a0d-9b95-6ede8fd6f904";
 const DEFAULT_N8N_WEBHOOK_URL =
   "http://72.61.219.156:5678/webhook/ab14f898-31ed-44dc-b283-dc7add27a3b2";
 
@@ -209,23 +209,15 @@ function buildCommercialObs(lead: Lead, partner: Partner | null): string {
   return lines.join("\n");
 }
 
-function buildCrmPayload(lead: Lead, partner: Partner | null) {
-  const payload: Record<string, unknown> = {
+function buildLeadRouterPayload(lead: Lead, partner: Partner | null) {
+  return {
     nome: lead.name,
     email: lead.email,
     tel: lead.whatsapp,
     obs: buildCommercialObs(lead, partner),
+    refferal_name: partner?.name || "",
+    referral_phone: partner?.phone || "",
   };
-
-  if (partner && lead.referral_coupon_code) {
-    payload.canal_captacao = "Indicação";
-    payload.indicador_nome = partner.name;
-    payload.indicador_telefone = partner.phone || "";
-    payload.cupom_indicacao = lead.referral_coupon_code;
-    payload.desconto_indicacao_percentual = REFERRAL_DISCOUNT_PERCENT;
-  }
-
-  return payload;
 }
 
 function getStoredJestorId(lead: Lead): string | null {
@@ -248,6 +240,7 @@ async function persistCrmMetadata(
   jestorId: string | null,
   partner: Partner | null,
   action: WorkflowAction,
+  crmPayload?: unknown,
 ) {
   const analysis = lead.analysis_summary ?? {};
 
@@ -269,6 +262,7 @@ async function persistCrmMetadata(
     await upsertPartnerReferral(supabaseClient, lead, partner, action === "proposal" ? "proposal_requested" : "lead_captured", jestorId, {
       action,
       jestor_id: jestorId,
+      payload: crmPayload,
     });
   }
 }
@@ -417,21 +411,21 @@ serve(async (req) => {
     }
 
     const typedLead = lead as Lead;
-    const crmWebhookUrl = Deno.env.get("CRM_WEBHOOK_URL") || DEFAULT_CRM_WEBHOOK_URL;
+    const leadRouterWebhookUrl = Deno.env.get("LEAD_ROUTER_WEBHOOK_URL") || DEFAULT_LEAD_ROUTER_WEBHOOK_URL;
     const n8nWebhookUrl = Deno.env.get("N8N_PROPOSAL_WEBHOOK_URL") || DEFAULT_N8N_WEBHOOK_URL;
 
-    let crmPayload: ReturnType<typeof buildCrmPayload> | null = null;
+    let crmPayload: ReturnType<typeof buildLeadRouterPayload> | null = null;
     let n8nPayload: ReturnType<typeof buildN8nPayload> | null = null;
     let jestorId = getStoredJestorId(typedLead);
     const partner = await getLeadPartner(supabaseClient, typedLead);
 
     if (action === "lead") {
-      crmPayload = buildCrmPayload(typedLead, partner);
+      crmPayload = buildLeadRouterPayload(typedLead, partner);
 
-      console.log(`Sending lead ${typedLead.id} to CRM webhook...`);
-      const crmResult = await postJson(crmWebhookUrl, crmPayload);
+      console.log(`Sending lead ${typedLead.id} to lead router webhook...`);
+      const crmResult = await postJson(leadRouterWebhookUrl, crmPayload);
       jestorId = extractJestorId(crmResult) || jestorId;
-      await persistCrmMetadata(supabaseClient, typedLead, jestorId, partner, action);
+      await persistCrmMetadata(supabaseClient, typedLead, jestorId, partner, action, crmPayload);
 
       return new Response(
         JSON.stringify({
