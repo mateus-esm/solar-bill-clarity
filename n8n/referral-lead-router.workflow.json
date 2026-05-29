@@ -5,7 +5,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "8cd82666-6aee-4a0d-9b95-6ede8fd6f904",
-        "responseMode": "responseNode",
+        "responseMode": "lastNode",
         "options": {}
       },
       "type": "n8n-nodes-base.webhook",
@@ -56,21 +56,6 @@
       ],
       "id": "4583d849-a6a5-4030-8cd1-a0ce8dbf41bd",
       "name": "Enviar para Jestor"
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ success: true, jestor_response: $json }) }}",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [
-        760,
-        0
-      ],
-      "id": "dc6eeac4-d5c6-404f-8d69-735b8e61d870",
-      "name": "Responder"
     }
   ],
   "connections": {
@@ -98,13 +83,7 @@
     },
     "Enviar para Jestor": {
       "main": [
-        [
-          {
-            "node": "Responder",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        []
       ]
     }
   },
