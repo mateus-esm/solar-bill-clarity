@@ -16,6 +16,92 @@ interface ChatRequest {
   messages: ChatMessage[];
 }
 
+// Convert Gemini streaming SSE to OpenAI-compatible SSE format
+function createGeminiToOpenAITransform(): TransformStream<Uint8Array, Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffer = "";
+
+  return new TransformStream({
+    transform(chunk, controller) {
+      buffer += decoder.decode(chunk, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || ""; // keep incomplete line in buffer
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: ")) continue;
+
+        const jsonStr = trimmed.slice(6).trim();
+        try {
+          const parsed = JSON.parse(jsonStr);
+          // Gemini streaming returns an array or object
+          const candidates = Array.isArray(parsed) ? parsed[0]?.candidates : parsed?.candidates;
+          if (!candidates?.[0]) continue;
+
+          const text = candidates[0].content?.parts?.[0]?.text || "";
+          const finishReason = candidates[0].finishReason;
+
+          if (text) {
+            const openaiChunk = {
+              choices: [{ delta: { content: text }, index: 0 }],
+              object: "chat.completion.chunk",
+            };
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(openaiChunk)}\n\n`));
+          }
+
+          if (finishReason) {
+            const doneChunk = {
+              choices: [{ delta: {}, finish_reason: "stop", index: 0 }],
+              object: "chat.completion.chunk",
+            };
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(doneChunk)}\n\n`));
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          }
+        } catch {
+          // skip malformed JSON lines (e.g. incomplete chunks)
+        }
+      }
+    },
+    flush(controller) {
+      // Process remaining buffer
+      if (buffer.trim()) {
+        const trimmed = buffer.trim();
+        if (trimmed.startsWith("data: ")) {
+          const jsonStr = trimmed.slice(6).trim();
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const candidates = Array.isArray(parsed) ? parsed[0]?.candidates : parsed?.candidates;
+            if (candidates?.[0]) {
+              const text = candidates[0].content?.parts?.[0]?.text || "";
+              if (text) {
+                const openaiChunk = {
+                  choices: [{ delta: { content: text }, index: 0 }],
+                  object: "chat.completion.chunk",
+                };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(openaiChunk)}\n\n`));
+              }
+              if (candidates[0].finishReason) {
+                const doneChunk = {
+                  choices: [{ delta: {}, finish_reason: "stop", index: 0 }],
+                  object: "chat.completion.chunk",
+                };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(doneChunk)}\n\n`));
+              }
+            }
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          } catch {
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          }
+        } else {
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        }
+      }
+    },
+  });
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -32,14 +118,12 @@ serve(async (req) => {
       });
     }
 
-    // Get auth token from request
-    const authHeader = req.headers.get("authorization");
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
+    const googleApiKey = Deno.env.get("GOOGLE_API_KEY");
 
-    if (!lovableApiKey) {
-      console.error("LOVABLE_API_KEY not configured");
+    if (!googleApiKey) {
+      console.error("GOOGLE_API_KEY not configured");
       return new Response(JSON.stringify({ error: "AI service not configured" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -106,7 +190,6 @@ serve(async (req) => {
 
     // Calculate derived values
     const minimumPossible = (analysis.availability_cost || 0) + (analysis.public_lighting_cost || 0);
-    const uncompensatedCost = Math.max(0, (analysis.total_amount || 0) - minimumPossible);
 
     const systemPrompt = `Você é um consultor de energia solar especializado em contas de luz brasileiras.
 O cliente enviou uma conta de energia e você tem acesso a todos os dados extraídos dela.
@@ -155,30 +238,35 @@ CONCEITOS IMPORTANTES QUE VOCÊ DEVE EXPLICAR CORRETAMENTE:
 - Créditos de Energia: Saldo de energia injetada que pode ser usado nos próximos 60 meses
 - Bandeira Tarifária: Adicional cobrado quando há escassez de energia (verde=sem adicional, amarela/vermelha=adicional)`;
 
-    console.log("🤖 Sending to AI gateway...");
+    console.log("🤖 Calling Google AI (Gemini) for chat...");
 
-    // Call Lovable AI Gateway with streaming
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${lovableApiKey}`,
-        "Content-Type": "application/json",
+    // Build Gemini contents: system instruction goes in system_instruction,
+    // messages are converted to Gemini's "user"/"model" roles
+    const geminiMessages = messages.map((m) => ({
+      parts: [{ text: m.content }],
+      role: m.role === "assistant" ? "model" : "user",
+    }));
+
+    // Call Google AI Gemini with streaming
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse&key=${googleApiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemPrompt }] },
+          contents: geminiMessages,
+          generationConfig: {
+            maxOutputTokens: 2000,
+            temperature: 0.7,
+          },
+        }),
       },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...messages,
-        ],
-        stream: true,
-        max_tokens: 2000,
-        temperature: 0.7,
-      }),
-    });
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("AI Gateway error:", response.status, errorText);
+      console.error("Gemini API error:", response.status, errorText);
 
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Limite de requisições excedido. Tente novamente em alguns segundos." }), {
@@ -187,9 +275,9 @@ CONCEITOS IMPORTANTES QUE VOCÊ DEVE EXPLICAR CORRETAMENTE:
         });
       }
 
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Créditos de AI esgotados. Entre em contato com o suporte." }), {
-          status: 402,
+      if (response.status === 403) {
+        return new Response(JSON.stringify({ error: "Serviço de IA indisponível. Entre em contato com o suporte." }), {
+          status: 403,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -200,16 +288,18 @@ CONCEITOS IMPORTANTES QUE VOCÊ DEVE EXPLICAR CORRETAMENTE:
       });
     }
 
-    // Return the stream directly
-    console.log("✅ Streaming response back to client");
-    return new Response(response.body, {
+    // Stream the response through the Gemini-to-OpenAI transform
+    console.log("✅ Streaming Gemini response through format transform...");
+    const transformedStream = response.body!.pipeThrough(createGeminiToOpenAITransform());
+
+    return new Response(transformedStream, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
 
   } catch (error) {
     console.error("bill-chat error:", error);
-    return new Response(JSON.stringify({ 
-      error: error instanceof Error ? error.message : "Erro interno" 
+    return new Response(JSON.stringify({
+      error: error instanceof Error ? error.message : "Erro interno",
     }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

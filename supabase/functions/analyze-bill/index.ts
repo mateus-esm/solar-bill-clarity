@@ -631,60 +631,64 @@ function parseOCRResponse(content: string): RawBillData {
   }
 }
 
-// Chamada OCR com Lovable AI Gateway (Gemini) - Provider primário
-async function callOCRWithGemini(imageDataUrl: string, lovableApiKey: string): Promise<RawBillData> {
-  console.log("🚀 Calling Lovable AI Gateway (Gemini) for OCR...");
-  
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${lovableApiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "google/gemini-3-flash-preview",
-      messages: [
-        { role: "system", content: OCR_PROMPT },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "Extraia TODOS os dados desta conta de energia:" },
-            { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
+// Chamada OCR com Google AI API (Gemini) - Provider primário
+async function callOCRWithGemini(imageDataUrl: string, googleApiKey: string): Promise<RawBillData> {
+  console.log("🚀 Calling Google AI (Gemini) for OCR...");
+
+  // Parse the data URL to get mime type and base64 data
+  const matches = imageDataUrl.match(/^data:(.+?);base64,(.+)$/);
+  if (!matches) throw new Error("Invalid image data URL");
+
+  const mimeType = matches[1];
+  const base64Data = matches[2];
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${googleApiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: `${OCR_PROMPT}\n\nExtraia TODOS os dados desta conta de energia:` },
+            { inlineData: { mimeType, data: base64Data } },
           ],
+        }],
+        generationConfig: {
+          maxOutputTokens: 8000,
+          temperature: 0,
         },
-      ],
-      max_tokens: 8000,
-      temperature: 0,
-    }),
-  });
+      }),
+    },
+  );
 
   if (!response.ok) {
     const errorText = await response.text();
     console.error("Gemini OCR error:", response.status, errorText);
-    
+
     // Specific error handling for rate limits and quota
     if (response.status === 429) {
       throw new Error("GEMINI_RATE_LIMIT: Rate limit exceeded");
     }
-    if (response.status === 402) {
-      throw new Error("GEMINI_QUOTA: Credits exhausted");
+    if (response.status === 403 || response.status === 402) {
+      throw new Error("GEMINI_QUOTA: Credits exhausted or API key error");
     }
-    
+
     throw new Error(`Gemini OCR error: ${response.status}`);
   }
 
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || "{}";
-  const finishReason = data.choices?.[0]?.finish_reason;
-  
-  console.log("📄 Gemini OCR response length:", content.length, "finish_reason:", finishReason);
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  const finishReason = data?.candidates?.[0]?.finishReason;
 
-  if (finishReason === "length") {
+  console.log("📄 Gemini OCR response length:", text.length, "finish_reason:", finishReason);
+
+  if (finishReason === "MAX_TOKENS") {
     console.warn("⚠️ Gemini response was truncated");
     throw new Error("GEMINI_TRUNCATED: Response truncated");
   }
 
-  return parseOCRResponse(content);
+  return parseOCRResponse(text);
 }
 
 // Chamada OCR com OpenAI - Fallback
@@ -743,7 +747,7 @@ async function callOCRWithOpenAI(imageDataUrl: string, openaiApiKey: string): Pr
 // Função principal de OCR com fallback
 async function performOCRExtraction(
   imageDataUrl: string,
-  lovableApiKey: string,
+  googleApiKey: string,
   openaiApiKey: string
 ): Promise<OCRResult> {
   console.log("🔍 ETAPA 1: Iniciando OCR de alta precisão com fallback...");
@@ -759,7 +763,7 @@ async function performOCRExtraction(
     geminiAttempts++;
     try {
       console.log(`📤 Gemini OCR attempt ${geminiAttempts}...`);
-      rawData = await callOCRWithGemini(imageDataUrl, lovableApiKey);
+      rawData = await callOCRWithGemini(imageDataUrl, googleApiKey);
       geminiSuccess = true;
       providerUsed = "gemini";
       console.log("✅ Gemini OCR succeeded");
@@ -902,7 +906,7 @@ async function performSpecialistAnalysis(
   rawData: RawBillData,
   monitoredGeneration: number,
   expectedGeneration: number,
-  lovableApiKey: string,
+  googleApiKey: string,
   openaiApiKey?: string
 ): Promise<SpecialistAnalysis> {
   
@@ -1093,26 +1097,26 @@ REGRAS ABSOLUTAS:
     providerUsed = "gemini";
   }
 
-  // Fallback to Gemini via Lovable AI Gateway
+  // Fallback to Gemini via Google AI API
   if (providerUsed === "gemini") {
     try {
       console.log("🔄 Specialist analysis: trying Gemini (fallback)...");
-      const geminiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${lovableApiKey}`,
-          "Content-Type": "application/json",
+      const geminiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${googleApiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: `${analystPrompt}\n\nAnalise estes dados e gere o relatório completo:` }],
+            }],
+            generationConfig: {
+              maxOutputTokens: 6000,
+              temperature: 0.7,
+            },
+          }),
         },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [
-            { role: "system", content: analystPrompt },
-            { role: "user", content: "Analise estes dados e gere o relatório completo:" },
-          ],
-          max_tokens: 6000,
-          temperature: 0.7,
-        }),
-      });
+      );
 
       if (!geminiResponse.ok) {
         const errorText = await geminiResponse.text();
@@ -1121,7 +1125,7 @@ REGRAS ABSOLUTAS:
       }
 
       const geminiData = await geminiResponse.json();
-      responseContent = geminiData.choices?.[0]?.message?.content || "{}";
+      responseContent = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
       console.log("✅ Specialist analysis completed with Gemini fallback");
     } catch (geminiError) {
       console.error("❌ All specialist providers failed");
@@ -1198,14 +1202,14 @@ serve(async (req) => {
     });
 
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    
-    if (!LOVABLE_API_KEY && !OPENAI_API_KEY) {
-      throw new Error("Neither LOVABLE_API_KEY nor OPENAI_API_KEY configured");
+    const GOOGLE_API_KEY = Deno.env.get("GOOGLE_API_KEY");
+
+    if (!GOOGLE_API_KEY && !OPENAI_API_KEY) {
+      throw new Error("Neither GOOGLE_API_KEY nor OPENAI_API_KEY configured");
     }
-    
+
     // At least one API key must be available for fallback to work
-    const lovableKey = LOVABLE_API_KEY || "";
+    const googleKey = GOOGLE_API_KEY || "";
     const openaiKey = OPENAI_API_KEY || "";
 
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -1246,7 +1250,7 @@ serve(async (req) => {
     // ============================================================
     // ETAPA 1: OCR DE ALTA PRECISÃO COM FALLBACK
     // ============================================================
-    const ocrResult = await performOCRExtraction(imageDataUrl, lovableKey, openaiKey);
+    const ocrResult = await performOCRExtraction(imageDataUrl, googleKey, openaiKey);
     const extractedRaw = ocrResult.data;
     const ocrProviderUsed = ocrResult.providerUsed;
     const rawData = normalizeRawBillData(extractedRaw);
@@ -1359,7 +1363,7 @@ serve(async (req) => {
     // ============================================================
     // ETAPA 2: ANÁLISE ESPECIALISTA
     // ============================================================
-    const specialistAnalysis = await performSpecialistAnalysis(rawData, monitoredGeneration, expectedGeneration, lovableKey, openaiKey);
+    const specialistAnalysis = await performSpecialistAnalysis(rawData, monitoredGeneration, expectedGeneration, googleKey, openaiKey);
 
     // ============================================================
     // SALVAR NO BANCO DE DADOS
