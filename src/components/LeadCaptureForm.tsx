@@ -6,13 +6,6 @@ import { Loader2, ShieldCheck, Zap } from "lucide-react";
 import { motion } from "framer-motion";
 
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   Form,
   FormControl,
   FormField,
@@ -23,7 +16,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/integrations/supabase/clientUntyped";
 import { useToast } from "@/hooks/use-toast";
+import { trackMetaCustomEvent, trackMetaLead } from "@/lib/metaPixel";
 
 const formSchema = z.object({
   name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
@@ -33,14 +28,22 @@ const formSchema = z.object({
 
 export type LeadFormData = z.infer<typeof formSchema>;
 
-interface LeadCaptureFormProps {
-  isOpen: boolean;
-  onSuccess: (leadId: string, leadData: LeadFormData) => void;
-  hasSolar: boolean;
-  analysisSummary?: any;
+interface ReferralPartner {
+  id: string;
+  name: string;
+  phone?: string | null;
+  coupon_code: string;
+  discount_percent: number;
 }
 
-export function LeadCaptureForm({ isOpen, onSuccess, hasSolar, analysisSummary }: LeadCaptureFormProps) {
+interface LeadCaptureFormProps {
+  onSuccess: (leadId: string, leadData: LeadFormData) => void;
+  hasSolar: boolean;
+  analysisSummary?: unknown;
+  referralPartner?: ReferralPartner | null;
+}
+
+export function LeadCaptureForm({ onSuccess, hasSolar, analysisSummary, referralPartner }: LeadCaptureFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
@@ -58,8 +61,8 @@ export function LeadCaptureForm({ isOpen, onSuccess, hasSolar, analysisSummary }
     const cleaned = ("" + value).replace(/\D/g, "");
     const match = cleaned.match(/^(\d{0,2})(\d{0,5})(\d{0,4})$/);
     if (match) {
-      return !match[2] 
-        ? match[1] 
+      return !match[2]
+        ? match[1]
         : `(${match[1]}) ${match[2]}` + (match[3] ? `-${match[3]}` : "");
     }
     return value;
@@ -68,30 +71,69 @@ export function LeadCaptureForm({ isOpen, onSuccess, hasSolar, analysisSummary }
   const onSubmit = async (data: LeadFormData) => {
     setIsSubmitting(true);
     try {
+      trackMetaCustomEvent("LeadFormSubmitClick", {
+        source: referralPartner ? "lead_magnet_referral" : "lead_magnet_gate",
+        has_solar: hasSolar,
+        referral_coupon: referralPartner?.coupon_code,
+      });
+
       // Remover máscara do whatsapp para salvar no banco
       const cleanWhatsapp = data.whatsapp.replace(/\D/g, "");
-      
-      const { data: leadData, error } = await supabase
-        .from("leads")
+      const generatedId = crypto.randomUUID();
+      const analysisWithReferral =
+        analysisSummary && typeof analysisSummary === "object"
+          ? {
+              ...(analysisSummary as Record<string, unknown>),
+              referral: referralPartner
+                ? {
+                    partner_id: referralPartner.id,
+                    partner_name: referralPartner.name,
+                    partner_phone: referralPartner.phone,
+                    coupon_code: referralPartner.coupon_code,
+                    discount_percent: referralPartner.discount_percent,
+                  }
+                : null,
+            }
+          : analysisSummary || null;
+
+      const { error } = await db("leads")
         .insert({
+          id: generatedId,
           name: data.name,
           email: data.email,
           whatsapp: cleanWhatsapp,
           has_solar: hasSolar,
-          analysis_summary: analysisSummary || null,
-          source: "lead_magnet_gate"
-        })
-        .select("id")
-        .single();
+          analysis_summary: analysisWithReferral,
+          partner_id: referralPartner?.id || null,
+          referral_coupon_code: referralPartner?.coupon_code || null,
+          referral_discount_percent: referralPartner?.discount_percent || null,
+          referral_status: referralPartner ? "lead_captured" : null,
+          source: referralPartner ? "lead_magnet_referral" : "lead_magnet_gate",
+        });
 
       if (error) throw error;
+
+      trackMetaLead({
+        source: referralPartner ? "lead_magnet_referral" : "lead_magnet_gate",
+        has_solar: hasSolar,
+        referral_coupon: referralPartner?.coupon_code,
+      });
+
+      const { error: crmError } = await supabase.functions.invoke("trigger-crm", {
+        body: { leadId: generatedId, action: "lead" },
+      });
+
+      if (crmError) {
+        console.error("Error triggering CRM workflow:", crmError);
+        throw crmError;
+      }
 
       toast({
         title: "Tudo pronto!",
         description: "Análise liberada com sucesso.",
       });
 
-      onSuccess(leadData.id, data);
+      onSuccess(generatedId, data);
     } catch (error) {
       console.error("Error saving lead:", error);
       toast({
@@ -105,18 +147,24 @@ export function LeadCaptureForm({ isOpen, onSuccess, hasSolar, analysisSummary }
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={() => {}}>
-      <DialogContent className="sm:max-w-md [&>button]:hidden">
-        <DialogHeader className="text-center">
+    <motion.div
+      key="lead-capture"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -16 }}
+      className="mx-auto max-w-md"
+    >
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div className="text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <Zap className="h-6 w-6 text-primary" />
           </div>
-          <DialogTitle className="text-2xl text-center">Sua análise está pronta!</DialogTitle>
-          <DialogDescription className="text-center text-base">
-            Descobrimos como você pode {hasSolar ? 'melhorar seu sistema' : 'parar de alugar energia'}. 
+          <h2 className="text-2xl font-semibold text-center text-foreground">Sua análise está pronta!</h2>
+          <p className="mt-2 text-center text-base text-muted-foreground">
+            Descobrimos como você pode {hasSolar ? "melhorar seu sistema" : "parar de alugar energia"}.
             Para ver o resultado completo, preencha os dados abaixo:
-          </DialogDescription>
-        </DialogHeader>
+          </p>
+        </div>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
@@ -133,7 +181,7 @@ export function LeadCaptureForm({ isOpen, onSuccess, hasSolar, analysisSummary }
                 </FormItem>
               )}
             />
-            
+
             <FormField
               control={form.control}
               name="whatsapp"
@@ -141,10 +189,10 @@ export function LeadCaptureForm({ isOpen, onSuccess, hasSolar, analysisSummary }
                 <FormItem>
                   <FormLabel>WhatsApp</FormLabel>
                   <FormControl>
-                    <Input 
-                      placeholder="(11) 99999-9999" 
+                    <Input
+                      placeholder="(11) 99999-9999"
                       disabled={isSubmitting}
-                      {...field} 
+                      {...field}
                       onChange={(e) => {
                         const masked = applyWhatsappMask(e.target.value);
                         field.onChange(masked);
@@ -180,7 +228,7 @@ export function LeadCaptureForm({ isOpen, onSuccess, hasSolar, analysisSummary }
                 "Ver Meu Relatório Gratuito"
               )}
             </Button>
-            
+
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -196,7 +244,7 @@ export function LeadCaptureForm({ isOpen, onSuccess, hasSolar, analysisSummary }
             </motion.div>
           </form>
         </Form>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </motion.div>
   );
 }

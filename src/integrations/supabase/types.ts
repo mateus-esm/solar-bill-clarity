@@ -27,11 +27,14 @@ export type Database = {
           bill_score: number | null
           billed_consumption_kwh: number | null
           billing_days: number | null
+          billing_items: Json | null
           cofins_cost: number | null
           compensated_energy_kwh: number | null
+          connection_type: string | null
           consumer_class: string | null
           created_at: string
           credit_expiry_date: string | null
+          credit_summary: Json | null
           current_credits_kwh: number | null
           demand_contracted_kw: number | null
           demand_measured_kw: number | null
@@ -39,6 +42,7 @@ export type Database = {
           energy_cost: number | null
           estimated_savings: number | null
           expected_generation_kwh: number | null
+          extra_charges: Json | null
           fine_amount: number | null
           generation_efficiency: number | null
           icms_cost: number | null
@@ -48,11 +52,14 @@ export type Database = {
           meter_reading_current: number | null
           meter_reading_previous: number | null
           monitored_generation_kwh: number
+          other_charges: number | null
           pis_cofins_cost: number | null
           pis_cost: number | null
           previous_credits_kwh: number | null
           property_id: string
           public_lighting_cost: number | null
+          reading_period_from: string | null
+          reading_period_to: string | null
           real_consumption_kwh: number | null
           reference_month: number
           reference_year: number
@@ -62,6 +69,7 @@ export type Database = {
           tariff_flag: string | null
           tariff_flag_cost: number | null
           tariff_modality: string | null
+          tariff_period: string | null
           tariff_te_value: number | null
           tariff_tusd_value: number | null
           total_amount: number | null
@@ -79,11 +87,14 @@ export type Database = {
           bill_score?: number | null
           billed_consumption_kwh?: number | null
           billing_days?: number | null
+          billing_items?: Json | null
           cofins_cost?: number | null
           compensated_energy_kwh?: number | null
+          connection_type?: string | null
           consumer_class?: string | null
           created_at?: string
           credit_expiry_date?: string | null
+          credit_summary?: Json | null
           current_credits_kwh?: number | null
           demand_contracted_kw?: number | null
           demand_measured_kw?: number | null
@@ -91,6 +102,7 @@ export type Database = {
           energy_cost?: number | null
           estimated_savings?: number | null
           expected_generation_kwh?: number | null
+          extra_charges?: Json | null
           fine_amount?: number | null
           generation_efficiency?: number | null
           icms_cost?: number | null
@@ -100,11 +112,14 @@ export type Database = {
           meter_reading_current?: number | null
           meter_reading_previous?: number | null
           monitored_generation_kwh: number
+          other_charges?: number | null
           pis_cofins_cost?: number | null
           pis_cost?: number | null
           previous_credits_kwh?: number | null
           property_id: string
           public_lighting_cost?: number | null
+          reading_period_from?: string | null
+          reading_period_to?: string | null
           real_consumption_kwh?: number | null
           reference_month: number
           reference_year: number
@@ -114,6 +129,7 @@ export type Database = {
           tariff_flag?: string | null
           tariff_flag_cost?: number | null
           tariff_modality?: string | null
+          tariff_period?: string | null
           tariff_te_value?: number | null
           tariff_tusd_value?: number | null
           total_amount?: number | null
@@ -131,11 +147,14 @@ export type Database = {
           bill_score?: number | null
           billed_consumption_kwh?: number | null
           billing_days?: number | null
+          billing_items?: Json | null
           cofins_cost?: number | null
           compensated_energy_kwh?: number | null
+          connection_type?: string | null
           consumer_class?: string | null
           created_at?: string
           credit_expiry_date?: string | null
+          credit_summary?: Json | null
           current_credits_kwh?: number | null
           demand_contracted_kw?: number | null
           demand_measured_kw?: number | null
@@ -143,6 +162,7 @@ export type Database = {
           energy_cost?: number | null
           estimated_savings?: number | null
           expected_generation_kwh?: number | null
+          extra_charges?: Json | null
           fine_amount?: number | null
           generation_efficiency?: number | null
           icms_cost?: number | null
@@ -152,11 +172,14 @@ export type Database = {
           meter_reading_current?: number | null
           meter_reading_previous?: number | null
           monitored_generation_kwh?: number
+          other_charges?: number | null
           pis_cofins_cost?: number | null
           pis_cost?: number | null
           previous_credits_kwh?: number | null
           property_id?: string
           public_lighting_cost?: number | null
+          reading_period_from?: string | null
+          reading_period_to?: string | null
           real_consumption_kwh?: number | null
           reference_month?: number
           reference_year?: number
@@ -166,6 +189,7 @@ export type Database = {
           tariff_flag?: string | null
           tariff_flag_cost?: number | null
           tariff_modality?: string | null
+          tariff_period?: string | null
           tariff_te_value?: number | null
           tariff_tusd_value?: number | null
           total_amount?: number | null
@@ -287,15 +311,7 @@ export type Database = {
           utm_source?: string | null
           whatsapp?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "leads_converted_user_id_fkey"
-            columns: ["converted_user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       profiles: {
         Row: {
