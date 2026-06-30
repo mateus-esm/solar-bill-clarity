@@ -263,6 +263,10 @@ export type Database = {
           name: string
           panel_count: number | null
           panel_power_watts: number | null
+          partner_id: string | null
+          referral_coupon_code: string | null
+          referral_discount_percent: number | null
+          referral_status: string | null
           requested_proposal: boolean | null
           source: string | null
           updated_at: string
@@ -283,6 +287,10 @@ export type Database = {
           name: string
           panel_count?: number | null
           panel_power_watts?: number | null
+          partner_id?: string | null
+          referral_coupon_code?: string | null
+          referral_discount_percent?: number | null
+          referral_status?: string | null
           requested_proposal?: boolean | null
           source?: string | null
           updated_at?: string
@@ -303,6 +311,10 @@ export type Database = {
           name?: string
           panel_count?: number | null
           panel_power_watts?: number | null
+          partner_id?: string | null
+          referral_coupon_code?: string | null
+          referral_discount_percent?: number | null
+          referral_status?: string | null
           requested_proposal?: boolean | null
           source?: string | null
           updated_at?: string
@@ -310,6 +322,98 @@ export type Database = {
           utm_medium?: string | null
           utm_source?: string | null
           whatsapp?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "partners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      partner_referrals: {
+        Row: {
+          coupon_code: string
+          created_at: string
+          crm_lead_id: string | null
+          crm_payload: Json | null
+          discount_percent: number
+          id: string
+          lead_id: string
+          partner_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          coupon_code: string
+          created_at?: string
+          crm_lead_id?: string | null
+          crm_payload?: Json | null
+          discount_percent?: number
+          id?: string
+          lead_id: string
+          partner_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          coupon_code?: string
+          created_at?: string
+          crm_lead_id?: string | null
+          crm_payload?: Json | null
+          discount_percent?: number
+          id?: string
+          lead_id?: string
+          partner_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "partner_referrals_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: true
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "partner_referrals_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "partners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      partners: {
+        Row: {
+          coupon_code: string
+          created_at: string
+          id: string
+          name: string
+          phone: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          coupon_code: string
+          created_at?: string
+          id?: string
+          name: string
+          phone?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          coupon_code?: string
+          created_at?: string
+          id?: string
+          name?: string
+          phone?: string | null
+          status?: string
+          updated_at?: string
         }
         Relationships: []
       }
