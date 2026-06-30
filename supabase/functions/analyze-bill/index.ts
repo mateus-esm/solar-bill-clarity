@@ -1509,7 +1509,7 @@ serve(async (req) => {
         bill_analysis_id: analysisId,
         raw_json: extractedRaw,
         ocr_confidence: rawData.extraction_confidence,
-        extraction_model: ocrProviderUsed === "gemini" ? "gemini-3-flash-preview" : "gpt-4o",
+        extraction_model: ocrProviderUsed === "gemini" ? GEMINI_OCR_MODELS.join("|") : ocrProviderUsed === "claude" ? "claude-sonnet-4-20250514" : "gpt-4o",
         extraction_version: "v3.0-fallback",
       });
 
