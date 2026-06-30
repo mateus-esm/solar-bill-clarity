@@ -740,7 +740,7 @@ export default function Index() {
                   </p>
                 </motion.div>
 
-                <AnalysisStepper currentStep={step === "gate" ? "calculating" : (step as AnalysisStep)} errorMessage={stepError} />
+                <AnalysisStepper currentStep={step as AnalysisStep} errorMessage={stepError} />
 
                 {isProcessing && activeBillIndex !== null && (
                   <div className="rounded-lg border border-primary/20 bg-primary/10 p-4 text-center">

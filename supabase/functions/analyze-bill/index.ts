@@ -446,8 +446,10 @@ function getMimeTypeFromBase64OrUrl(fileType?: string, url?: string): string {
 
 interface OCRResult {
   data: RawBillData;
-  providerUsed: "gemini" | "openai";
+  providerUsed: "gemini" | "claude" | "openai";
 }
+
+const GEMINI_OCR_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
 
 const OCR_PROMPT = `Você é um OCR especializado em contas de energia elétrica brasileiras. 
 Sua única tarefa é EXTRAIR dados da imagem com máxima precisão. NÃO faça análises ou recomendações.
@@ -654,8 +656,8 @@ function parseOCRResponse(content: string): RawBillData {
 }
 
 // Chamada OCR com Google AI API (Gemini) - Provider primário
-async function callOCRWithGemini(imageDataUrl: string, googleApiKey: string): Promise<RawBillData> {
-  console.log("🚀 Calling Google AI (Gemini) for OCR...");
+async function callOCRWithGemini(imageDataUrl: string, googleApiKey: string, model = GEMINI_OCR_MODELS[0]): Promise<RawBillData> {
+  console.log(`🚀 Calling Google AI (${model}) for OCR...`);
 
   // Parse the data URL to get mime type and base64 data
   const matches = imageDataUrl.match(/^data:(.+?);base64,(.+)$/);
@@ -665,10 +667,13 @@ async function callOCRWithGemini(imageDataUrl: string, googleApiKey: string): Pr
   const base64Data = matches[2];
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${googleApiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-goog-api-key": googleApiKey,
+      },
       body: JSON.stringify({
         contents: [{
           parts: [
@@ -686,17 +691,17 @@ async function callOCRWithGemini(imageDataUrl: string, googleApiKey: string): Pr
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error("Gemini OCR error:", response.status, errorText);
+    console.error(`Gemini OCR error (${model}):`, response.status, errorText);
 
     // Specific error handling for rate limits and quota
     if (response.status === 429) {
-      throw new Error("GEMINI_RATE_LIMIT: Rate limit exceeded");
+      throw new Error(`GEMINI_RATE_LIMIT: Rate limit exceeded (${model})`);
     }
     if (response.status === 403 || response.status === 402) {
-      throw new Error("GEMINI_QUOTA: Credits exhausted or API key error");
+      throw new Error(`GEMINI_QUOTA: Credits exhausted or API key error (${model})`);
     }
 
-    throw new Error(`Gemini OCR error: ${response.status}`);
+    throw new Error(`Gemini OCR error: ${response.status} (${model})`);
   }
 
   const data = await response.json();
@@ -711,6 +716,68 @@ async function callOCRWithGemini(imageDataUrl: string, googleApiKey: string): Pr
   }
 
   return parseOCRResponse(text);
+}
+
+// Chamada OCR com Claude Vision - fallback resiliente para picos do Gemini
+async function callOCRWithClaude(imageDataUrl: string, claudeApiKey: string): Promise<RawBillData> {
+  console.log("🔄 Calling Claude Vision for OCR (fallback)...");
+
+  const matches = imageDataUrl.match(/^data:(.+?);base64,(.+)$/);
+  if (!matches) throw new Error("Invalid image data URL");
+
+  const mimeType = matches[1];
+  const base64Data = matches[2];
+
+  if (mimeType.includes("pdf")) {
+    throw new Error("CLAUDE_UNSUPPORTED_FILE: Claude OCR fallback only supports images");
+  }
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": claudeApiKey,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 8000,
+      temperature: 0,
+      system: OCR_PROMPT,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "Extraia TODOS os dados desta conta de energia. Retorne apenas JSON válido." },
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: mimeType,
+              data: base64Data,
+            },
+          },
+        ],
+      }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Claude OCR error:", response.status, errorText);
+    throw new Error(`Claude OCR error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data.content?.find((part: any) => part?.type === "text")?.text || data.content?.[0]?.text || "{}";
+  const stopReason = data.stop_reason;
+
+  console.log("📄 Claude OCR response length:", content.length, "stop_reason:", stopReason);
+
+  if (stopReason === "max_tokens") {
+    throw new Error("CLAUDE_TRUNCATED: Response truncated");
+  }
+
+  return parseOCRResponse(content);
 }
 
 // Chamada OCR com OpenAI - Fallback
@@ -775,33 +842,42 @@ async function performOCRExtraction(
   console.log("🔍 ETAPA 1: Iniciando OCR de alta precisão com fallback...");
 
   let rawData: RawBillData = {};
-  let providerUsed: "gemini" | "openai" = "gemini";
+  let providerUsed: "gemini" | "claude" | "openai" = "gemini";
 
-  // Tentar Gemini primeiro (até 2 tentativas)
-  let geminiAttempts = 0;
   let geminiSuccess = false;
   
-  while (geminiAttempts < 2 && !geminiSuccess) {
-    geminiAttempts++;
-    try {
-      console.log(`📤 Gemini OCR attempt ${geminiAttempts}...`);
-      rawData = await callOCRWithGemini(imageDataUrl, googleApiKey);
-      geminiSuccess = true;
-      providerUsed = "gemini";
-      console.log("✅ Gemini OCR succeeded");
-    } catch (geminiError) {
-      const errorMsg = geminiError instanceof Error ? geminiError.message : String(geminiError);
-      console.warn(`⚠️ Gemini attempt ${geminiAttempts} failed:`, errorMsg);
-      
-      // Se for erro fatal (quota/rate limit), pular para fallback imediatamente
-      if (errorMsg.includes("GEMINI_RATE_LIMIT") || errorMsg.includes("GEMINI_QUOTA")) {
-        console.log("🔄 Gemini quota/rate limit - switching to OpenAI fallback");
-        break;
+  for (const model of GEMINI_OCR_MODELS) {
+    if (!googleApiKey || geminiSuccess) break;
+    for (let attempt = 1; attempt <= 2 && !geminiSuccess; attempt++) {
+      try {
+        console.log(`📤 Gemini OCR attempt ${attempt} with ${model}...`);
+        rawData = await callOCRWithGemini(imageDataUrl, googleApiKey, model);
+        geminiSuccess = true;
+        providerUsed = "gemini";
+        console.log(`✅ Gemini OCR succeeded with ${model}`);
+      } catch (geminiError) {
+        const errorMsg = geminiError instanceof Error ? geminiError.message : String(geminiError);
+        console.warn(`⚠️ Gemini ${model} attempt ${attempt} failed:`, errorMsg);
+
+        if (errorMsg.includes("GEMINI_QUOTA") || errorMsg.includes("401")) {
+          console.log("🔄 Gemini authentication/quota issue - switching providers");
+          break;
+        }
       }
-      
-      // Se for segunda tentativa, também pular para fallback
-      if (geminiAttempts >= 2) {
-        console.log("🔄 Gemini failed after 2 attempts - switching to OpenAI fallback");
+    }
+  }
+
+  if (!geminiSuccess) {
+    const CLAUDE_API_KEY = Deno.env.get("CLAUDE_API_KEY");
+    if (CLAUDE_API_KEY) {
+      try {
+        rawData = await callOCRWithClaude(imageDataUrl, CLAUDE_API_KEY);
+        providerUsed = "claude";
+        console.log("✅ Claude OCR fallback succeeded");
+        geminiSuccess = true;
+      } catch (claudeError) {
+        const errorMsg = claudeError instanceof Error ? claudeError.message : String(claudeError);
+        console.warn("⚠️ Claude OCR fallback failed:", errorMsg);
       }
     }
   }
@@ -1151,10 +1227,13 @@ REGRAS ABSOLUTAS:
     try {
       console.log("🔄 Specialist analysis: trying Gemini (fallback)...");
       const geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${googleApiKey}`,
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-goog-api-key": googleApiKey,
+          },
           body: JSON.stringify({
             contents: [{
               parts: [{ text: `${analystPrompt}\n\nAnalise estes dados e gere o relatório completo:` }],
@@ -1430,7 +1509,7 @@ serve(async (req) => {
         bill_analysis_id: analysisId,
         raw_json: extractedRaw,
         ocr_confidence: rawData.extraction_confidence,
-        extraction_model: ocrProviderUsed === "gemini" ? "gemini-3-flash-preview" : "gpt-4o",
+        extraction_model: ocrProviderUsed === "gemini" ? GEMINI_OCR_MODELS.join("|") : ocrProviderUsed === "claude" ? "claude-sonnet-4-20250514" : "gpt-4o",
         extraction_version: "v3.0-fallback",
       });
 
